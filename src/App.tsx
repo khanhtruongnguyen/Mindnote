@@ -8,8 +8,10 @@ import { Sidebar } from './components/Sidebar';
 import { GistSyncModal } from './components/GistSyncModal';
 import { HelpModal } from './components/HelpModal';
 import { NewMapModal } from './components/NewMapModal';
+import { useDeviceMode } from './hooks/useDeviceMode';
 
 export function App() {
+  const { isMobile, preference, changePreference } = useDeviceMode();
   const [maps, setMaps] = useState<MapData[]>(() => StorageService.getMaps());
   const [settings, setSettings] = useState(() => StorageService.getSettings());
   const [activeMapId, setActiveMapId] = useState<string>(() => {
@@ -239,6 +241,9 @@ export function App() {
       <Header
         maps={maps}
         activeMap={activeMap}
+        isMobile={isMobile}
+        devicePreference={preference}
+        onChangeDeviceMode={changePreference}
         onSelectMap={(id) => {
           setActiveMapId(id);
           setSelectedNodeId(null);
@@ -259,18 +264,21 @@ export function App() {
         <ReactFlowProvider>
           <CanvasWorkspace
             mapData={activeMap}
+            isMobile={isMobile}
             onUpdateMap={handleUpdateCurrentMap}
             selectedNodeId={selectedNodeId}
             onSelectNode={(node) => setSelectedNodeId(node?.id || null)}
             onDoubleClickedCanvas={handleAddNodeAtPosition}
+            onAddNewNodeCenter={handleAddNodeCenter}
           />
         </ReactFlowProvider>
       </main>
 
-      {/* Obsidian Note Detail Sidebar */}
+      {/* Obsidian Note Detail Sidebar (Bottom Sheet on Mobile) */}
       <Sidebar
         selectedNode={selectedNode}
         attachments={activeMap.attachments || {}}
+        isMobile={isMobile}
         onUpdateNode={handleUpdateNode}
         onDeleteNode={handleDeleteNode}
         onClose={() => setSelectedNodeId(null)}

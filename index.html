@@ -2,7 +2,8 @@
 <html lang="vi" class="dark">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Tối ưu chống tự động phóng to khó chịu trên iPhone khi gõ phím -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>NexusCanvas - Không Gian Ghi Chú Vô Tận & Sơ Đồ Tư Duy</title>
     <meta name="description" content="Ứng dụng ghi chú không gian vô tận phong cách Obsidian dành cho sinh viên đại học. Hỗ trợ LaTeX, Markdown, vẽ sơ đồ tư duy và đồng bộ GitHub Gist." />
     
@@ -26,7 +27,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-[#121215] text-zinc-100 antialiased selection:bg-purple-600/30 selection:text-purple-200">
+  <body class="bg-[#121215] text-zinc-100 antialiased selection:bg-purple-600/30 selection:text-purple-200 overflow-hidden touch-manipulation">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

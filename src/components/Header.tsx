@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { MapData } from '../types';
+import type { DeviceMode } from '../hooks/useDeviceMode';
 import {
   ChevronDown,
   Plus,
@@ -11,12 +12,17 @@ import {
   Trash2,
   Check,
   Layers,
-  Sparkles,
+  MoreVertical,
+  Smartphone,
+  Monitor,
 } from 'lucide-react';
 
 interface HeaderProps {
   maps: MapData[];
   activeMap: MapData;
+  isMobile: boolean;
+  devicePreference: DeviceMode;
+  onChangeDeviceMode: (mode: DeviceMode) => void;
   onSelectMap: (mapId: string) => void;
   onOpenNewMapModal: () => void;
   onRenameMap: (mapId: string, newName: string) => void;
@@ -32,6 +38,9 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   maps,
   activeMap,
+  isMobile,
+  devicePreference,
+  onChangeDeviceMode,
   onSelectMap,
   onOpenNewMapModal,
   onRenameMap,
@@ -44,21 +53,26 @@ export const Header: React.FC<HeaderProps> = ({
   hasGistConfigured,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(activeMap.name);
   const fileImportRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setEditedName(activeMap.name);
     setIsEditingName(false);
   }, [activeMap]);
 
-  // Click outside to close dropdown
+  // Click outside to close dropdowns
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
+      }
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setMobileMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -73,7 +87,7 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="absolute top-0 left-0 right-0 h-14 bg-[#141419]/90 backdrop-blur-md border-b border-[#252533] px-4 flex items-center justify-between z-30 select-none">
+    <header className="absolute top-0 left-0 right-0 h-14 bg-[#141419]/95 backdrop-blur-md border-b border-[#252533] px-3 sm:px-4 flex items-center justify-between z-30 select-none">
       {/* Hidden file input for import */}
       <input
         type="file"
@@ -90,20 +104,20 @@ export const Header: React.FC<HeaderProps> = ({
       />
 
       {/* Left: Brand & Map Selector */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
         {/* Brand logo */}
-        <div className="flex items-center gap-2 pr-3 border-r border-zinc-800">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-purple-600/30">
-            <Sparkles className="w-4 h-4 text-white" />
+        <div className="flex items-center gap-1.5 pr-2 sm:pr-3 border-r border-zinc-800 shrink-0">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-purple-600/30 text-base">
+            📒
           </div>
-          <span className="text-sm font-bold tracking-tight text-white hidden sm:inline">
-            Nexus<span className="text-purple-400">Canvas</span>
+          <span className="text-sm font-bold tracking-tight text-white hidden md:inline">
+            Nexus<span className="text-purple-400">Notes</span>
           </span>
         </div>
 
         {/* Current Map Selector Dropdown */}
-        <div className="relative" ref={dropdownRef}>
-          <div className="flex items-center gap-1.5 bg-[#1c1c25] border border-[#2e2e3d] hover:border-zinc-600 rounded-xl px-3 py-1.5 transition-colors">
+        <div className="relative min-w-0" ref={dropdownRef}>
+          <div className="flex items-center gap-1.5 bg-[#1c1c25] border border-[#2e2e3d] hover:border-zinc-600 rounded-xl px-2.5 sm:px-3 py-1.5 transition-colors">
             {isEditingName ? (
               <div className="flex items-center gap-1">
                 <input
@@ -115,7 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
                     if (e.key === 'Enter') handleSaveRename();
                     if (e.key === 'Escape') setIsEditingName(false);
                   }}
-                  className="bg-transparent text-xs font-semibold text-white border-b border-purple-500 outline-none px-0.5 py-0 w-44"
+                  className="bg-transparent text-xs font-semibold text-white border-b border-purple-500 outline-none px-0.5 py-0 w-32 sm:w-44"
                 />
                 <button
                   onClick={handleSaveRename}
@@ -128,19 +142,21 @@ export const Header: React.FC<HeaderProps> = ({
               <>
                 <button
                   onClick={() => setDropdownOpen(!dropdownOpen)}
-                  className="flex items-center gap-2 text-xs font-semibold text-zinc-100 max-w-[200px] truncate"
+                  className="flex items-center gap-1.5 text-xs font-semibold text-zinc-100 max-w-[130px] sm:max-w-[180px] md:max-w-[220px] truncate"
                 >
                   <Layers className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                   <span className="truncate">{activeMap.name}</span>
-                  <ChevronDown className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                  <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
                 </button>
-                <button
-                  onClick={() => setIsEditingName(true)}
-                  title="Đổi tên Map này"
-                  className="p-1 rounded text-zinc-500 hover:text-zinc-200"
-                >
-                  <Edit2 className="w-3 h-3" />
-                </button>
+                {!isMobile && (
+                  <button
+                    onClick={() => setIsEditingName(true)}
+                    title="Đổi tên Map này"
+                    className="p-1 rounded text-zinc-500 hover:text-zinc-200"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -149,7 +165,7 @@ export const Header: React.FC<HeaderProps> = ({
           {dropdownOpen && (
             <div className="absolute top-11 left-0 w-64 bg-[#1a1a24] border border-[#2e2e3e] rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
               <div className="px-3 py-1.5 text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
-                Danh sách Map của bạn ({maps.length})
+                Bản đồ của bạn ({maps.length})
               </div>
 
               <div className="max-h-60 overflow-y-auto py-1">
@@ -197,7 +213,7 @@ export const Header: React.FC<HeaderProps> = ({
                   className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-purple-300 hover:bg-purple-600/20 transition-colors"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Tạo Bản đồ / Môn học mới</span>
+                  <span>Tạo Bản đồ mới</span>
                 </button>
               </div>
             </div>
@@ -205,59 +221,186 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
-      {/* Right: Quick Action Controls */}
-      <div className="flex items-center gap-2">
-        {/* Add Node Button */}
-        <button
-          onClick={onAddNode}
-          title="Thêm nút mới vào giữa màn hình (hoặc click đúp chuột vào canvas)"
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/30 transition-all hover:scale-[1.02]"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Thêm nút</span>
-        </button>
+      {/* Right Controls */}
+      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+        {/* Desktop Add Node button */}
+        {!isMobile && (
+          <button
+            onClick={onAddNode}
+            title="Thêm nút mới vào giữa màn hình"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/30 transition-all hover:scale-[1.02]"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Thêm nút</span>
+          </button>
+        )}
 
-        {/* Export / Backup button */}
-        <button
-          onClick={onExportBackup}
-          title="Xuất file JSON sao lưu vào máy"
-          className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
-        >
-          <Download className="w-4 h-4" />
-        </button>
+        {/* Desktop Export / Backup */}
+        {!isMobile && (
+          <button
+            onClick={onExportBackup}
+            title="Xuất file JSON sao lưu"
+            className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+        )}
 
-        {/* Import button */}
-        <button
-          onClick={() => fileImportRef.current?.click()}
-          title="Nhập file JSON sao lưu từ máy"
-          className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
-        >
-          <Upload className="w-4 h-4" />
-        </button>
+        {/* Desktop Import */}
+        {!isMobile && (
+          <button
+            onClick={() => fileImportRef.current?.click()}
+            title="Nhập file JSON sao lưu"
+            className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+          </button>
+        )}
 
-        {/* Gist Sync Button */}
-        <button
-          onClick={onOpenGistModal}
-          title={hasGistConfigured ? 'GitHub Gist đã kết nối' : 'Kết nối GitHub Gist để đồng bộ'}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors ${
-            hasGistConfigured
-              ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
-              : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-400 hover:text-white'
-          }`}
-        >
-          <Cloud className="w-3.5 h-3.5" />
-          <span className="hidden md:inline">Gist Sync</span>
-          {hasGistConfigured && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-        </button>
+        {/* Desktop Gist Sync Button */}
+        {!isMobile && (
+          <button
+            onClick={onOpenGistModal}
+            title={hasGistConfigured ? 'GitHub Gist đã kết nối' : 'Kết nối GitHub Gist'}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors ${
+              hasGistConfigured
+                ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Cloud className="w-3.5 h-3.5" />
+            <span>Gist Sync</span>
+            {hasGistConfigured && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+          </button>
+        )}
 
-        {/* Help / Shortcuts Button */}
-        <button
-          onClick={onOpenHelpModal}
-          title="Hướng dẫn & Phím tắt"
-          className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors"
-        >
-          <HelpCircle className="w-4 h-4" />
-        </button>
+        {/* Desktop Help */}
+        {!isMobile && (
+          <button
+            onClick={onOpenHelpModal}
+            title="Hướng dẫn & Phím tắt"
+            className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
+          >
+            <HelpCircle className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Device Mode Switcher (Dropdown or Button) */}
+        <div className="relative" ref={mobileMenuRef}>
+          {isMobile ? (
+            /* Mobile 3-dot hamburger menu */
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-300 hover:text-white"
+              title="Menu mở rộng"
+            >
+              <MoreVertical className="w-4 h-4" />
+            </button>
+          ) : (
+            /* Desktop toggle device mode */
+            <button
+              onClick={() => {
+                const nextMode = devicePreference === 'mobile' ? 'desktop' : devicePreference === 'desktop' ? 'auto' : 'mobile';
+                onChangeDeviceMode(nextMode);
+              }}
+              title={`Chế độ hiện tại: ${devicePreference}. Bấm để chuyển đổi.`}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white text-xs font-medium"
+            >
+              {devicePreference === 'mobile' ? (
+                <>
+                  <Smartphone className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Mobile</span>
+                </>
+              ) : devicePreference === 'desktop' ? (
+                <>
+                  <Monitor className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Desktop</span>
+                </>
+              ) : (
+                <>
+                  <Monitor className="w-3.5 h-3.5" />
+                  <span>Tự động</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Mobile Popover Menu */}
+          {mobileMenuOpen && (
+            <div className="absolute top-12 right-0 w-56 bg-[#1a1a24] border border-[#2e2e3e] rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1 text-xs">
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenGistModal();
+                }}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+              >
+                <span className="flex items-center gap-2">
+                  <Cloud className="w-4 h-4 text-purple-400" />
+                  <span>Đồng bộ Gist</span>
+                </span>
+                {hasGistConfigured && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
+              </button>
+
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onExportBackup();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+              >
+                <Download className="w-4 h-4 text-blue-400" />
+                <span>Xuất file JSON sao lưu</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  fileImportRef.current?.click();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+              >
+                <Upload className="w-4 h-4 text-emerald-400" />
+                <span>Nhập file JSON sao lưu</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  onOpenHelpModal();
+                }}
+                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+              >
+                <HelpCircle className="w-4 h-4 text-amber-400" />
+                <span>Hướng dẫn & Xóa liên kết</span>
+              </button>
+
+              <div className="border-t border-zinc-800 my-1 pt-1">
+                <div className="px-3 py-1 text-[10px] uppercase font-semibold text-zinc-500">
+                  Giao diện hiển thị
+                </div>
+                <div className="grid grid-cols-3 gap-1 px-1">
+                  {(['auto', 'mobile', 'desktop'] as DeviceMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => {
+                        onChangeDeviceMode(mode);
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`py-1 rounded-lg text-center font-medium capitalize text-[11px] ${
+                        devicePreference === mode
+                          ? 'bg-purple-600 text-white font-bold'
+                          : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      {mode === 'auto' ? 'Tự động' : mode === 'mobile' ? 'Mobile' : 'PC'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
