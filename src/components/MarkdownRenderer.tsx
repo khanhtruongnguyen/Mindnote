@@ -67,14 +67,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
     a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
       if (!href) return <span>{children}</span>;
 
-      // Kiểm tra nếu là link nội bộ của ứng dụng (chứa ?map= hoặc ?note=)
-      const isInternal =
-        href.startsWith('?') ||
-        href.startsWith('#') ||
-        href.startsWith('node:') ||
-        (href.includes('?') && (href.includes('map=') || href.includes('note=')));
+      // Kiểm tra nếu là link web bên ngoài (bắt đầu bằng http://, https://, mailto:)
+      const isExternal =
+        href.startsWith('http://') ||
+        href.startsWith('https://') ||
+        href.startsWith('mailto:');
 
-      if (isInternal && (onNavigate || onNodeClick)) {
+      if (!isExternal) {
+        // Link nội bộ đến ô ghi chú hoặc bản đồ (không bao giờ mở tab mới gây trang trắng)
         return (
           <button
             type="button"
@@ -82,26 +82,38 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
               e.preventDefault();
               e.stopPropagation();
               try {
+                let targetId = '';
+                let targetMap: string | undefined;
+
                 if (href.startsWith('node:')) {
-                  const targetId = href.replace('node:', '');
-                  if (onNodeClick) onNodeClick(targetId);
-                  else if (onNavigate) onNavigate(undefined, targetId);
-                  return;
+                  targetId = href.replace('node:', '');
+                } else if (href.startsWith('#')) {
+                  targetId = href.replace('#', '');
+                } else if (href.includes('?') && (href.includes('map=') || href.includes('note='))) {
+                  const dummy = new URL(href, window.location.origin);
+                  targetMap = dummy.searchParams.get('map') || undefined;
+                  targetId = dummy.searchParams.get('note') || '';
+                } else {
+                  targetId = href;
                 }
-                const dummy = new URL(href, window.location.origin);
-                const targetMap = dummy.searchParams.get('map') || undefined;
-                const targetNote = dummy.searchParams.get('note') || undefined;
-                if (onNavigate) {
-                  onNavigate(targetMap, targetNote);
-                } else if (onNodeClick && targetNote) {
-                  onNodeClick(targetNote);
+
+                if (onNodeClick && targetId) {
+                  onNodeClick(targetId);
+                } else if (onNavigate) {
+                  onNavigate(targetMap, targetId || undefined);
+                } else {
+                  window.dispatchEvent(
+                    new CustomEvent('canvas-navigate', {
+                      detail: { mapId: targetMap, noteId: targetId },
+                    })
+                  );
                 }
               } catch {
                 // Fallback
               }
             }}
-            title="Nhấp để lướt camera đến ô ghi chú này trên bản đồ"
-            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 my-0.5 rounded-full bg-purple-500/20 hover:bg-purple-500/35 text-purple-200 hover:text-white border border-purple-500/40 text-xs font-medium cursor-pointer transition-colors shadow-sm"
+            title="Nhấp để xem ô ghi chú này trên bản đồ"
+            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 my-0.5 rounded-full bg-purple-500/20 hover:bg-purple-500/35 text-purple-200 hover:text-white border border-purple-500/40 text-xs font-medium cursor-pointer transition-colors shadow-sm select-none"
           >
             <Compass className="w-3.5 h-3.5 text-purple-400 shrink-0" />
             <span>{children}</span>
@@ -109,6 +121,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
         );
       }
 
+      // Link web bên ngoài
       return (
         <a
           href={href}

@@ -156,6 +156,18 @@ export function App() {
     [maps]
   );
 
+  // Lắng nghe sự kiện chuyển link từ bất kỳ đâu trên canvas
+  useEffect(() => {
+    const handleCanvasNav = (e: Event) => {
+      const customEvent = e as CustomEvent<{ mapId?: string; noteId?: string }>;
+      if (customEvent.detail) {
+        handleNavigateInternal(customEvent.detail.mapId, customEvent.detail.noteId);
+      }
+    };
+    window.addEventListener('canvas-navigate', handleCanvasNav);
+    return () => window.removeEventListener('canvas-navigate', handleCanvasNav);
+  }, [handleNavigateInternal]);
+
   // Focus a node from AI chat click
   const handleFocusNode = useCallback((nodeId: string) => {
     setSelectedNodeId(nodeId);
@@ -517,6 +529,7 @@ export function App() {
             selectedNodeId={selectedNodeId}
             focusNodeId={focusNodeId}
             onSelectNode={(node) => setSelectedNodeId(node?.id || null)}
+            onNavigate={handleNavigateInternal}
             onDoubleClickedCanvas={handleAddNodeAtPosition}
             onAddNewNodeCenter={handleAddNodeCenter}
           />

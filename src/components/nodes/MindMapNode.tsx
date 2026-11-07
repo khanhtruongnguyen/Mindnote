@@ -16,30 +16,61 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
 
   return (
     <div className={`relative group ${selected ? 'z-[9999]' : ''} will-change-transform`}>
-      {/* 4 Handles for connecting edges */}
+      {/* 4 Handles for connecting edges - Hỗ trợ kéo từ bất kỳ cạnh nào và thả vào bất kỳ cạnh nào */}
+      {/* TOP */}
       <Handle
         type="target"
         position={Position.Top}
         id="top"
-        className="!w-2.5 !h-2.5 !bg-zinc-500 hover:!bg-purple-400 !border-2 !border-[#121215]"
+        className="!w-3 !h-3 !bg-zinc-500 hover:!bg-purple-400 !border-2 !border-[#121215] transition-colors"
       />
+      <Handle
+        type="source"
+        position={Position.Top}
+        id="top-src"
+        className="!w-3 !h-3 !bg-transparent !border-0"
+      />
+
+      {/* RIGHT */}
       <Handle
         type="source"
         position={Position.Right}
         id="right"
-        className="!w-2.5 !h-2.5 !bg-zinc-500 hover:!bg-purple-400 !border-2 !border-[#121215]"
+        className="!w-3 !h-3 !bg-zinc-500 hover:!bg-purple-400 !border-2 !border-[#121215] transition-colors"
       />
+      <Handle
+        type="target"
+        position={Position.Right}
+        id="right-tgt"
+        className="!w-3 !h-3 !bg-transparent !border-0"
+      />
+
+      {/* BOTTOM */}
       <Handle
         type="source"
         position={Position.Bottom}
         id="bottom"
-        className="!w-2.5 !h-2.5 !bg-zinc-500 hover:!bg-purple-400 !border-2 !border-[#121215]"
+        className="!w-3 !h-3 !bg-zinc-500 hover:!bg-purple-400 !border-2 !border-[#121215] transition-colors"
       />
+      <Handle
+        type="target"
+        position={Position.Bottom}
+        id="bottom-tgt"
+        className="!w-3 !h-3 !bg-transparent !border-0"
+      />
+
+      {/* LEFT */}
       <Handle
         type="target"
         position={Position.Left}
         id="left"
-        className="!w-2.5 !h-2.5 !bg-zinc-500 hover:!bg-purple-400 !border-2 !border-[#121215]"
+        className="!w-3 !h-3 !bg-zinc-500 hover:!bg-purple-400 !border-2 !border-[#121215] transition-colors"
+      />
+      <Handle
+        type="source"
+        position={Position.Left}
+        id="left-src"
+        className="!w-3 !h-3 !bg-transparent !border-0"
       />
 
       {/* Circle / Dot shape */}
@@ -148,6 +179,8 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
               <MarkdownRenderer
                 content={nodeData.content}
                 attachments={nodeData.attachments as Record<string, string>}
+                onNavigate={nodeData.onNavigate as any}
+                onNodeClick={nodeData.onNodeClick as any}
               />
             ) : (
               <div className="text-zinc-500 italic text-xs py-2">

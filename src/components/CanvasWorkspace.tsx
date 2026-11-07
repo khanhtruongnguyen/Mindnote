@@ -29,6 +29,7 @@ interface CanvasWorkspaceProps {
   selectedNodeId: string | null;
   focusNodeId?: string | null;
   onSelectNode: (node: CustomNode | null) => void;
+  onNavigate?: (mapId?: string, noteId?: string) => void;
   onDoubleClickedCanvas: (position: { x: number; y: number }) => void;
   onAddNewNodeCenter: () => void;
 }
@@ -42,6 +43,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
   selectedNodeId,
   focusNodeId: _focusNodeId,
   onSelectNode,
+  onNavigate,
   onDoubleClickedCanvas,
   onAddNewNodeCenter,
 }) => {
@@ -72,7 +74,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     }));
   }, [mapData.edges, handleDeleteEdge]);
 
-  // Format nodes with selected flag, zIndex elevation, and attachments
+  // Format nodes with selected flag, zIndex elevation, attachments, and internal navigation
   const formattedNodes = useMemo(() => {
     const currentAttachments = mapData.attachments || EMPTY_ATTACHMENTS;
     return mapData.nodes.map((node) => ({
@@ -82,9 +84,18 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
       data: {
         ...node.data,
         attachments: currentAttachments,
+        onNavigate,
+        onNodeClick: (targetId: string) => {
+          const lower = targetId.toLowerCase().trim();
+          const target = mapData.nodes.find(
+            (n) => n.id === targetId || n.data.label?.toLowerCase().trim() === lower || n.data.label?.toLowerCase().includes(lower)
+          );
+          if (target) onSelectNode(target);
+          else onNavigate?.(undefined, targetId);
+        },
       },
     }));
-  }, [mapData.nodes, selectedNodeId, mapData.attachments]);
+  }, [mapData.nodes, selectedNodeId, mapData.attachments, onNavigate, onSelectNode]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(formattedNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(formattedEdges);
@@ -100,10 +111,19 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         data: {
           ...node.data,
           attachments: currentAttachments,
+          onNavigate,
+          onNodeClick: (targetId: string) => {
+            const lower = targetId.toLowerCase().trim();
+            const target = mapData.nodes.find(
+              (n) => n.id === targetId || n.data.label?.toLowerCase().trim() === lower || n.data.label?.toLowerCase().includes(lower)
+            );
+            if (target) onSelectNode(target);
+            else onNavigate?.(undefined, targetId);
+          },
         },
       }))
     );
-  }, [mapData.id, mapData.nodes, selectedNodeId, mapData.attachments, setNodes]);
+  }, [mapData.id, mapData.nodes, selectedNodeId, mapData.attachments, onNavigate, onSelectNode, setNodes]);
 
   React.useEffect(() => {
     setEdges(
@@ -236,6 +256,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         nodes={nodes}
         edges={edges}
         elevateNodesOnSelect={true}
+        connectionRadius={40}
         onNodesChange={handleNodesChange}
         onNodeDragStop={handleNodeDragStop}
         onEdgesChange={handleEdgesChange}
