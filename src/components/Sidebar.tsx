@@ -1,10 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import type { Edge } from '@xyflow/react';
 import type { CustomNode, NodeColor, NodeShape } from '../types';
 import { COLOR_SCHEMES } from '../constants/theme';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { SyntaxHandbookModal } from './SyntaxHandbookModal';
 import {
-  X,
   Trash2,
   Eye,
   Edit3,
@@ -20,10 +20,22 @@ import {
   BoxSelect,
   BookOpen,
   ChevronDown,
+  ChevronUp,
+  X,
+  GitBranch,
+  ArrowRight,
+  ArrowLeft,
+  Network,
+  Plus,
 } from 'lucide-react';
 
 interface SidebarProps {
   selectedNode: CustomNode | null;
+  allNodes?: CustomNode[];
+  edges?: Edge[];
+  onAddEdge?: (sourceId: string, targetId: string) => void;
+  onDeleteEdge?: (edgeId: string) => void;
+  onSelectNodeById?: (nodeId: string) => void;
   attachments?: Record<string, string>;
   isMobile?: boolean;
   onUpdateNode: (id: string, updates: Partial<CustomNode['data']>) => void;
@@ -36,6 +48,11 @@ type ViewMode = 'edit' | 'preview' | 'split';
 
 export const Sidebar: React.FC<SidebarProps> = ({
   selectedNode,
+  allNodes = [],
+  edges = [],
+  onAddEdge,
+  onDeleteEdge,
+  onSelectNodeById,
   attachments = {},
   isMobile = false,
   onUpdateNode,
@@ -43,22 +60,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onClose,
   onSaveAttachment,
 }) => {
-  // On mobile, default to 'edit' or 'preview' instead of 'split' because split screen on phone is cramped
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? 'edit' : 'split');
   const [showFormulaMenu, setShowFormulaMenu] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [showHandbookModal, setShowHandbookModal] = useState(false);
+  const [showConnections, setShowConnections] = useState(false);
+  const [targetConnectId, setTargetConnectId] = useState<string>('');
   const [linkTitle, setLinkTitle] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
 
+  // Mobile Drag Gesture States
+  const [dragOffsetY, setDragOffsetY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const startTouchY = useRef(0);
+  const currentY = useRef(0);
+  const startTime = useRef(0);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Reset drag position when selectedNode changes
+  useEffect(() => {
+    setDragOffsetY(0);
+    setIsDragging(false);
+    setIsExpanded(false);
+    if (isMobile) {
+      setViewMode('edit');
+    }
+  }, [selectedNode?.id, isMobile]);
 
   if (!selectedNode) return null;
 
   const { data } = selectedNode;
   const currentColor = data.color || 'purple';
   const currentShape = data.shape || 'pill';
+
+  // Connections for current selected node
+  const outgoingEdges = edges.filter((e) => e.source === selectedNode.id);
+  const incomingEdges = edges.filter((e) => e.target === selectedNode.id);
+  const candidateNodes = allNodes.filter(
+    (n) => n.id !== selectedNode.id && !outgoingEdges.some((e) => e.target === n.id)
+  );
 
   const insertTextAtCursor = (prefix: string, suffix = '') => {
     const textarea = textareaRef.current;
@@ -127,18 +171,107 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setShowLinkModal(false);
   };
 
+  // TOUCH DRAG GESTURE HANDLERS (Vùng kéo trượt trên ảnh 2)
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (!isMobile) return;
+    startTouchY.current = e.touches[0].clientY;
+    currentY.current = 0;
+    startTime.current = Date.now();
+    setIsDragging(true);
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!isMobile || !isDragging) return;
+    const deltaY = e.touches[0].clientY - startTouchY.current;
+    if (deltaY > 0) {
+      // Kéo xuống: trang ghi chú trôi xuống theo ngón tay
+      currentY.current = deltaY;
+      setDragOffsetY(deltaY);
+    } else if (deltaY < 0 && !isExpanded) {
+      // Kéo lên: mở rộng thêm chiều cao
+      currentY.current = deltaY;
+      setDragOffsetY(deltaY * 0.3);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (!isMobile || !isDragging) return;
+    setIsDragging(false);
+    const deltaY = currentY.current;
+    const elapsed = Date.now() - startTime.current;
+    const velocity = deltaY / Math.max(1, elapsed); // Tốc độ vuốt
+
+    // Nếu kéo xuống quá 85px hoặc vuốt nhanh xuống -> Đóng êm ái
+    if (deltaY > 85 || velocity > 0.4) {
+      setDragOffsetY(window.innerHeight);
+      setTimeout(() => {
+        onClose();
+        setDragOffsetY(0);
+      }, 240);
+    } else if (deltaY < -45) {
+      // Nếu kéo lên trên -> Mở rộng toàn màn hình
+      setIsExpanded(true);
+      setDragOffsetY(0);
+    } else {
+      // Chưa đủ ngưỡng -> Bật ngược trở lại vị trí cũ
+      setDragOffsetY(0);
+    }
+  };
+
+  const handleDismiss = () => {
+    if (isMobile) {
+      setDragOffsetY(window.innerHeight);
+      setTimeout(() => {
+        onClose();
+        setDragOffsetY(0);
+      }, 240);
+    } else {
+      onClose();
+    }
+  };
+
   // Styling container based on mobile vs desktop
   const containerClasses = isMobile
-    ? 'fixed inset-x-0 bottom-0 h-[88vh] bg-[#16161b]/98 backdrop-blur-2xl border-t border-[#363647] rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.8)] z-50 flex flex-col animate-in slide-in-from-bottom duration-300'
+    ? 'fixed inset-x-0 bottom-0 bg-[#16161b]/98 backdrop-blur-2xl border-t border-[#363647] rounded-t-3xl shadow-[0_-12px_45px_rgba(0,0,0,0.85)] z-50 flex flex-col will-change-transform'
     : 'fixed top-0 right-0 h-full w-[500px] max-w-[95vw] bg-[#16161b]/98 backdrop-blur-xl border-l border-[#2e2e3a] shadow-2xl z-40 flex flex-col transition-transform duration-300 ease-in-out select-text';
 
   return (
     <>
-      <aside aria-label="Thanh bên ghi chú" className={containerClasses}>
-        {/* Mobile drag handle indicator */}
+      {/* Nền mờ phía sau trên điện thoại */}
+      {isMobile && (
+        <div
+          onClick={handleDismiss}
+          style={{
+            opacity: isDragging ? Math.max(0, 1 - dragOffsetY / 350) : 1,
+          }}
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 transition-opacity"
+        />
+      )}
+
+      <aside
+        aria-label="Thanh bên ghi chú"
+        className={containerClasses}
+        style={{
+          height: isMobile ? (isExpanded ? '96vh' : '86vh') : undefined,
+          transform: isMobile ? `translateY(${dragOffsetY}px)` : undefined,
+          transition: isDragging
+            ? 'none'
+            : 'transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), height 0.26s cubic-bezier(0.16, 1, 0.3, 1)',
+          paddingBottom: isMobile ? 'max(env(safe-area-inset-bottom, 0px), 16px)' : undefined,
+        }}
+      >
+        {/* VÙNG KÉO TRƯỢT LÊN XUỐNG BẰNG TAY (Circled in red in Image 2) */}
         {isMobile && (
-          <div className="w-full flex justify-center pt-2.5 pb-1">
-            <div className="w-12 h-1.5 rounded-full bg-zinc-600" />
+          <div
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
+            className="w-full flex flex-col items-center pt-3 pb-1.5 touch-none select-none cursor-grab active:cursor-grabbing active:bg-zinc-800/30 rounded-t-3xl transition-colors"
+          >
+            <div className="w-14 h-1.5 rounded-full bg-zinc-500/80 shadow-sm" />
+            <span className="text-[10px] text-zinc-500 mt-1 font-medium tracking-tight">
+              {isExpanded ? 'Vuốt xuống để thu nhỏ' : 'Vuốt xuống để đóng • Vuốt lên để mở rộng'}
+            </span>
           </div>
         )}
 
@@ -151,8 +284,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className="hidden"
         />
 
-        {/* Top Header */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-2.5 border-b border-[#2e2e3a] bg-[#1a1a22]/70">
+        {/* Top Header (Cũng có thể chạm kéo ở đây) */}
+        <div
+          onTouchStart={isMobile ? handleTouchStart : undefined}
+          onTouchMove={isMobile ? handleTouchMove : undefined}
+          onTouchEnd={isMobile ? handleTouchEnd : undefined}
+          className="flex items-center justify-between px-4 sm:px-5 py-2.5 border-b border-[#2e2e3a] bg-[#1a1a22]/70 touch-none select-none"
+        >
           <div className="flex items-center gap-2">
             <div
               className={`w-3 h-3 rounded-full ${COLOR_SCHEMES[currentColor].dot} shadow-[0_0_8px_currentColor]`}
@@ -167,7 +305,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => setShowHandbookModal(true)}
               title="Mở Sổ tay cú pháp (in đậm, đóng ô, công thức, link...)"
-              className="flex items-center gap-1 px-2 py-1 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 text-xs font-semibold border border-purple-500/30 transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-500/10 text-purple-300 hover:bg-purple-500/20 text-xs font-semibold border border-purple-500/30 transition-colors"
             >
               <BookOpen className="w-3.5 h-3.5" />
               <span>Sổ tay</span>
@@ -186,8 +324,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
 
             <button
-              onClick={onClose}
-              title="Đóng (Esc)"
+              onClick={handleDismiss}
+              title="Đóng ghi chú"
               className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
             >
               {isMobile ? <ChevronDown className="w-5 h-5 text-zinc-300" /> : <X className="w-4 h-4" />}
@@ -203,7 +341,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               value={data.label}
               onChange={(e) => onUpdateNode(selectedNode.id, { label: e.target.value })}
               placeholder="Tiêu đề ghi chú..."
-              /* text-base on mobile prevents iOS Safari auto-zoom! */
               className="w-full bg-transparent text-base sm:text-lg font-bold text-white placeholder-zinc-500 border-none outline-none focus:ring-0 px-0"
             />
           </div>
@@ -247,6 +384,159 @@ export const Sidebar: React.FC<SidebarProps> = ({
               })}
             </div>
           </div>
+        </div>
+
+        {/* Quản lý liên kết các ô (Kết nối bằng 1 chạm, không cần kéo thả) */}
+        <div className="px-4 sm:px-5 py-2 border-b border-[#272733] bg-[#16161f] space-y-2">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setShowConnections(!showConnections)}
+              className="flex items-center gap-1.5 text-xs font-semibold text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            >
+              <Network className="w-3.5 h-3.5 text-purple-400" />
+              <span>Liên kết ({outgoingEdges.length + incomingEdges.length})</span>
+              {showConnections ? (
+                <ChevronUp className="w-3 h-3 text-zinc-500" />
+              ) : (
+                <ChevronDown className="w-3 h-3 text-zinc-500" />
+              )}
+            </button>
+
+            {!showConnections && candidateNodes.length > 0 && onAddEdge && (
+              <button
+                type="button"
+                onClick={() => setShowConnections(true)}
+                className="text-[11px] text-purple-400 hover:text-purple-300 flex items-center gap-1 font-medium cursor-pointer"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Nối tới ô khác</span>
+              </button>
+            )}
+          </div>
+
+          {showConnections && (
+            <div className="space-y-2 pt-1 animate-in fade-in duration-100">
+              {/* Nối nhanh tới ô khác */}
+              {candidateNodes.length > 0 && onAddEdge ? (
+                <div className="flex items-center gap-2">
+                  <select
+                    value={targetConnectId}
+                    onChange={(e) => setTargetConnectId(e.target.value)}
+                    className="flex-1 bg-[#101016] border border-[#2e2e40] focus:border-purple-500 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 outline-none truncate"
+                  >
+                    <option value="">-- Chọn ô muốn nối tới --</option>
+                    {candidateNodes.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.data.label || 'Chưa đặt tên'}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    disabled={!targetConnectId}
+                    onClick={() => {
+                      if (targetConnectId) {
+                        onAddEdge(selectedNode.id, targetConnectId);
+                        setTargetConnectId('');
+                      }
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white font-semibold text-xs transition-colors shrink-0 shadow-sm cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    <GitBranch className="w-3.5 h-3.5" />
+                    <span>Nối ➔</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="text-[11px] text-zinc-500 italic">
+                  {allNodes.length <= 1
+                    ? 'Bạn cần có ít nhất 2 ô trên sơ đồ để tạo liên kết.'
+                    : 'Ô này đã được nối tới tất cả các ô khác.'}
+                </div>
+              )}
+
+              {/* Danh sách các ô đang trỏ tới (Outgoing) */}
+              {outgoingEdges.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-[10px] text-zinc-500 uppercase font-semibold">
+                    Trỏ tới ({outgoingEdges.length}):
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {outgoingEdges.map((edge) => {
+                      const targetNode = allNodes.find((n) => n.id === edge.target);
+                      return (
+                        <div
+                          key={edge.id}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#1e1e2d] border border-purple-500/30 text-xs text-zinc-200"
+                        >
+                          <ArrowRight className="w-2.5 h-2.5 text-purple-400 shrink-0" />
+                          <span
+                            onClick={() => onSelectNodeById?.(edge.target)}
+                            className="cursor-pointer hover:text-purple-300 font-medium truncate max-w-[120px]"
+                            title="Bấm để chọn ô này"
+                          >
+                            {targetNode?.data.label || edge.target}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteEdge?.(edge.id)}
+                            title="Hủy liên kết"
+                            className="text-zinc-500 hover:text-rose-400 p-0.5 ml-0.5 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Danh sách các ô trỏ vào ô này (Incoming) */}
+              {incomingEdges.length > 0 && (
+                <div className="space-y-1">
+                  <span className="text-[10px] text-zinc-500 uppercase font-semibold">
+                    Được trỏ từ ({incomingEdges.length}):
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {incomingEdges.map((edge) => {
+                      const srcNode = allNodes.find((n) => n.id === edge.source);
+                      return (
+                        <div
+                          key={edge.id}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#1e1e2d] border border-cyan-500/30 text-xs text-zinc-200"
+                        >
+                          <ArrowLeft className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
+                          <span
+                            onClick={() => onSelectNodeById?.(edge.source)}
+                            className="cursor-pointer hover:text-cyan-300 font-medium truncate max-w-[120px]"
+                            title="Bấm để chọn ô này"
+                          >
+                            {srcNode?.data.label || edge.source}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteEdge?.(edge.id)}
+                            title="Hủy liên kết"
+                            className="text-zinc-500 hover:text-rose-400 p-0.5 ml-0.5 cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {outgoingEdges.length === 0 && incomingEdges.length === 0 && (
+                <div className="text-[11px] text-zinc-500 italic py-0.5">
+                  Ô này chưa có mũi tên liên kết nào. Hãy chọn một ô ở trên để nối ngay!
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Editor & Preview Toolbar */}
@@ -414,7 +704,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onChange={(e) => onUpdateNode(selectedNode.id, { content: e.target.value })}
                 onPaste={handlePaste}
                 placeholder="Gõ ghi chú tại đây... Hỗ trợ Markdown, $E = mc^2$, hoặc chụp ảnh rồi dán (Ctrl+V)."
-                /* 16px font-size (text-base) on mobile completely prevents iOS auto-zoom! */
                 className="w-full h-full bg-transparent text-zinc-200 text-base sm:text-sm font-mono leading-relaxed resize-none outline-none focus:ring-0 placeholder-zinc-600"
               />
             </div>

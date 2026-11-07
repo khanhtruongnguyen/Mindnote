@@ -27,6 +27,7 @@ interface CanvasWorkspaceProps {
   isMobile?: boolean;
   onUpdateMap: (updated: Partial<MapData>) => void;
   selectedNodeId: string | null;
+  focusNodeId?: string | null;
   onSelectNode: (node: CustomNode | null) => void;
   onDoubleClickedCanvas: (position: { x: number; y: number }) => void;
   onAddNewNodeCenter: () => void;
@@ -37,12 +38,25 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
   isMobile = false,
   onUpdateMap,
   selectedNodeId,
+  focusNodeId,
   onSelectNode,
   onDoubleClickedCanvas,
   onAddNewNodeCenter,
 }) => {
-  const { screenToFlowPosition } = useReactFlow();
+  const { screenToFlowPosition, setCenter } = useReactFlow();
   const [showMiniMap, setShowMiniMap] = useState(false); // Hide by default on mobile, show via toggle
+
+  // Automatically center view when focusNodeId changes
+  React.useEffect(() => {
+    if (!focusNodeId) return;
+    const targetNode = mapData.nodes.find((n) => n.id === focusNodeId);
+    if (targetNode) {
+      setCenter(targetNode.position.x + 80, targetNode.position.y + 30, {
+        zoom: 1.1,
+        duration: 700,
+      });
+    }
+  }, [focusNodeId, mapData.nodes, setCenter]);
 
   const nodeTypes = useMemo(() => ({ mindmap: MindMapNode }), []);
   const edgeTypes = useMemo(() => ({ custom: CustomEdge }), []);
@@ -283,7 +297,12 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
 
       {/* MOBILE FLOATING ACTION BUTTON (FAB) - Thêm nút nhanh bằng 1 tay */}
       {isMobile && !selectedNodeId && (
-        <div className="absolute bottom-6 right-6 z-30 flex flex-col items-end gap-3 pointer-events-auto">
+        <div
+          style={{
+            bottom: 'calc(1.5rem + env(safe-area-inset-bottom, 0px))',
+          }}
+          className="absolute right-6 z-30 flex flex-col items-end gap-3 pointer-events-auto"
+        >
           <button
             onClick={onAddNewNodeCenter}
             className="flex items-center gap-2 px-4 py-3 rounded-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-sm shadow-[0_8px_25px_rgba(124,58,237,0.5)] active:scale-95 transition-transform border border-purple-400/40"

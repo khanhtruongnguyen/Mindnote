@@ -1,7 +1,8 @@
-import type { MapData, AppSettings } from '../types';
+import type { MapData, AppSettings, ChatSession } from '../types';
 
 const STORAGE_MAPS_KEY = 'infinite_notes_maps_v1';
 const STORAGE_SETTINGS_KEY = 'infinite_notes_settings_v1';
+const STORAGE_CHAT_SESSIONS_PREFIX = 'infinite_notes_chat_sessions_v1_';
 
 export const DEFAULT_STARTER_MAP: MapData = {
   id: 'starter-calculus-1',
@@ -157,6 +158,13 @@ $$\\frac{f(b) - f(a)}{g(b) - g(a)} = \\frac{f'(\\xi)}{g'(\\xi)}$$`,
   ],
 };
 
+export const DEFAULT_AI_CONFIG = {
+  aiBaseUrl: 'https://api.xah.io/v1',
+  aiApiKey: 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b',
+  aiModel: 'dungcsnd113/gemini-flash-3.8',
+  saveChatHistory: true,
+};
+
 export const StorageService = {
   getMaps(): MapData[] {
     try {
@@ -189,11 +197,21 @@ export const StorageService = {
     try {
       const data = localStorage.getItem(STORAGE_SETTINGS_KEY);
       if (!data) {
-        return { activeMapId: DEFAULT_STARTER_MAP.id };
+        return {
+          activeMapId: DEFAULT_STARTER_MAP.id,
+          ...DEFAULT_AI_CONFIG,
+        };
       }
-      return JSON.parse(data);
+      const parsed = JSON.parse(data);
+      return {
+        ...DEFAULT_AI_CONFIG,
+        ...parsed,
+      };
     } catch {
-      return { activeMapId: DEFAULT_STARTER_MAP.id };
+      return {
+        activeMapId: DEFAULT_STARTER_MAP.id,
+        ...DEFAULT_AI_CONFIG,
+      };
     }
   },
 
@@ -202,6 +220,38 @@ export const StorageService = {
       localStorage.setItem(STORAGE_SETTINGS_KEY, JSON.stringify(settings));
     } catch (e) {
       console.error('Failed to save settings:', e);
+    }
+  },
+
+  getChatSessions(mapId: string): ChatSession[] {
+    try {
+      const raw = localStorage.getItem(`${STORAGE_CHAT_SESSIONS_PREFIX}${mapId}`);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  },
+
+  saveChatSessions(mapId: string, sessions: ChatSession[]): void {
+    try {
+      localStorage.setItem(`${STORAGE_CHAT_SESSIONS_PREFIX}${mapId}`, JSON.stringify(sessions));
+    } catch (e) {
+      console.error('Failed to save chat sessions:', e);
+    }
+  },
+
+  deleteChatSession(mapId: string, sessionId: string): void {
+    const sessions = this.getChatSessions(mapId).filter((s) => s.id !== sessionId);
+    this.saveChatSessions(mapId, sessions);
+  },
+
+  clearAllChatSessions(mapId: string): void {
+    try {
+      localStorage.removeItem(`${STORAGE_CHAT_SESSIONS_PREFIX}${mapId}`);
+    } catch (e) {
+      console.error('Failed to clear chat sessions:', e);
     }
   },
 

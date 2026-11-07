@@ -3,14 +3,19 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
-import { ExternalLink, Lightbulb } from 'lucide-react';
+import { ExternalLink, Lightbulb, MapPin } from 'lucide-react';
 
 interface MarkdownRendererProps {
   content: string;
   attachments?: Record<string, string>;
+  onNodeClick?: (nodeId: string) => void;
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, attachments = {} }) => {
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
+  content,
+  attachments = {},
+  onNodeClick,
+}) => {
   if (!content || !content.trim()) {
     return (
       <div className="text-zinc-500 italic text-sm py-4">
@@ -65,18 +70,38 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, att
               </blockquote>
             );
           },
-          /* Liên kết Web & Google Docs */
-          a: ({ href, children }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-purple-400 hover:text-purple-300 font-medium underline underline-offset-4 transition-colors bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20 my-0.5"
-            >
-              <span>{children}</span>
-              <ExternalLink className="w-3 h-3 shrink-0" />
-            </a>
-          ),
+          /* Liên kết Web hoặc Node trong Mind Map */
+          a: ({ href, children }) => {
+            if (href?.startsWith('node:')) {
+              const targetNodeId = href.replace(/^node:/, '');
+              return (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onNodeClick?.(targetNodeId);
+                  }}
+                  className="inline-flex items-center gap-1 text-purple-300 hover:text-white font-medium bg-purple-500/20 hover:bg-purple-500/35 px-2 py-0.5 rounded-full border border-purple-500/40 transition-all cursor-pointer my-0.5 text-xs shadow-sm"
+                  title="Nhấp để chuyển đến vị trí ô này trên sơ đồ"
+                >
+                  <MapPin className="w-3 h-3 text-purple-400 shrink-0" />
+                  <span>{children}</span>
+                </button>
+              );
+            }
+            return (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-purple-400 hover:text-purple-300 font-medium underline underline-offset-4 transition-colors bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20 my-0.5"
+              >
+                <span>{children}</span>
+                <ExternalLink className="w-3 h-3 shrink-0" />
+              </a>
+            );
+          },
           /* Khối mã nguồn */
           code: ({ className, children, ...props }) => {
             const isInline = !className;

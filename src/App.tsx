@@ -1,13 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ReactFlowProvider } from '@xyflow/react';
+import { ReactFlowProvider, MarkerType, type Edge } from '@xyflow/react';
 import type { CustomNode, MapData, NodeColor } from './types';
 import { StorageService, DEFAULT_STARTER_MAP } from './services/storage';
+import { COLOR_SCHEMES } from './constants/theme';
 import { Header } from './components/Header';
 import { CanvasWorkspace } from './components/CanvasWorkspace';
 import { Sidebar } from './components/Sidebar';
 import { GistSyncModal } from './components/GistSyncModal';
 import { HelpModal } from './components/HelpModal';
 import { NewMapModal } from './components/NewMapModal';
+import { AiChatPanel } from './components/AiChatPanel';
+import { AiSettingsModal } from './components/AiSettingsModal';
+import { ConnectNodesModal } from './components/ConnectNodesModal';
 import { useDeviceMode } from './hooks/useDeviceMode';
 
 export function App() {
@@ -20,11 +24,15 @@ export function App() {
   });
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
 
   // Modals
   const [isGistModalOpen, setIsGistModalOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isNewMapModalOpen, setIsNewMapModalOpen] = useState(false);
+  const [isAiChatOpen, setIsAiChatOpen] = useState(false);
+  const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
+  const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
 
   // Active Map reference
   const activeMap = useMemo(() => {
@@ -79,6 +87,101 @@ export function App() {
     StorageService.saveSettings({ ...settings, activeMapId });
   }, [settings, activeMapId]);
 
+  // Focus a node from AI chat click
+  const handleFocusNode = useCallback((nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    setFocusNodeId(nodeId);
+    setTimeout(() => setFocusNodeId(null), 100);
+  }, []);
+
+  // Create node directly from AI chat response
+  const handleAddNodeFromAi = useCallback(
+    (label: string, content: string) => {
+      const colors: NodeColor[] = ['purple', 'blue', 'emerald', 'amber', 'rose', 'cyan'];
+      const randomColor = colors[Math.floor(Math.random() * colors.length)];
+      const newNodeId = `node-${Date.now()}`;
+      const newNode: CustomNode = {
+        id: newNodeId,
+        type: 'mindmap',
+        position: {
+          x: 420 + (Math.random() * 100 - 50),
+          y: 260 + (Math.random() * 100 - 50),
+        },
+        data: {
+          label,
+          color: randomColor,
+          shape: 'card',
+          content,
+        },
+      };
+
+      handleUpdateCurrentMap({
+        nodes: [...activeMap.nodes, newNode],
+      });
+      setSelectedNodeId(newNodeId);
+      setFocusNodeId(newNodeId);
+    },
+    [activeMap.nodes, handleUpdateCurrentMap]
+  );
+
+  // Add connection edge between 2 nodes
+  const handleAddEdge = useCallback(
+    (sourceId: string, targetId: string) => {
+      if (!sourceId || !targetId || sourceId === targetId) return;
+
+      const exists = activeMap.edges.some(
+        (e) => e.source === sourceId && e.target === targetId
+      );
+      if (exists) {
+        alert('Hai ô này đã được nối với nhau rồi!');
+        return;
+      }
+
+      const sourceNode = activeMap.nodes.find((n) => n.id === sourceId);
+      const sourceColor = sourceNode?.data?.color || 'purple';
+      const accentColor = COLOR_SCHEMES[sourceColor]?.accent || '#a855f7';
+
+      const newEdge: Edge = {
+        id: `e-${sourceId}-${targetId}-${Date.now()}`,
+        source: sourceId,
+        target: targetId,
+        type: 'custom',
+        animated: true,
+        style: { stroke: accentColor, strokeWidth: 2 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: accentColor,
+          width: 16,
+          height: 16,
+        },
+      };
+
+      handleUpdateCurrentMap({
+        edges: [...activeMap.edges, newEdge],
+      });
+    },
+    [activeMap.edges, activeMap.nodes, handleUpdateCurrentMap]
+  );
+
+  // Delete edge
+  const handleDeleteEdge = useCallback(
+    (edgeId: string) => {
+      handleUpdateCurrentMap({
+        edges: activeMap.edges.filter((e) => e.id !== edgeId),
+      });
+    },
+    [activeMap.edges, handleUpdateCurrentMap]
+  );
+
+  // Update App Settings
+  const handleSaveSettings = useCallback((updates: Partial<typeof settings>) => {
+    setSettings((prev) => {
+      const next = { ...prev, ...updates };
+      StorageService.saveSettings(next);
+      return next;
+    });
+  }, []);
+
   // Keyboard shortcut listener (Escape to close modals/sidebar)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -87,6 +190,8 @@ export function App() {
         setIsGistModalOpen(false);
         setIsHelpModalOpen(false);
         setIsNewMapModalOpen(false);
+        setIsAiSettingsOpen(false);
+        setIsConnectModalOpen(false);
       }
     };
 
@@ -256,17 +361,26 @@ export function App() {
         onImportBackup={handleImportBackup}
         onOpenGistModal={() => setIsGistModalOpen(true)}
         onOpenHelpModal={() => setIsHelpModalOpen(true)}
+        onOpenConnectModal={() => setIsConnectModalOpen(true)}
         hasGistConfigured={Boolean(settings.githubToken && settings.gistId)}
+        isAiOpen={isAiChatOpen}
+        onToggleAi={() => setIsAiChatOpen((prev) => !prev)}
       />
 
       {/* Infinite Canvas Area */}
-      <main className="flex-1 w-full h-full pt-14 relative overflow-hidden">
+      <main
+        style={{
+          paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
+        }}
+        className="flex-1 w-full h-full relative overflow-hidden"
+      >
         <ReactFlowProvider>
           <CanvasWorkspace
             mapData={activeMap}
             isMobile={isMobile}
             onUpdateMap={handleUpdateCurrentMap}
             selectedNodeId={selectedNodeId}
+            focusNodeId={focusNodeId}
             onSelectNode={(node) => setSelectedNodeId(node?.id || null)}
             onDoubleClickedCanvas={handleAddNodeAtPosition}
             onAddNewNodeCenter={handleAddNodeCenter}
@@ -277,6 +391,11 @@ export function App() {
       {/* Obsidian Note Detail Sidebar (Bottom Sheet on Mobile) */}
       <Sidebar
         selectedNode={selectedNode}
+        allNodes={activeMap.nodes}
+        edges={activeMap.edges}
+        onAddEdge={handleAddEdge}
+        onDeleteEdge={handleDeleteEdge}
+        onSelectNodeById={handleFocusNode}
         attachments={activeMap.attachments || {}}
         isMobile={isMobile}
         onUpdateNode={handleUpdateNode}
@@ -317,6 +436,37 @@ export function App() {
         isOpen={isNewMapModalOpen}
         onClose={() => setIsNewMapModalOpen(false)}
         onCreate={handleCreateNewMap}
+      />
+
+      {/* AI Chat Panel (Floating on PC, Bottom sheet on Mobile) */}
+      <AiChatPanel
+        isOpen={isAiChatOpen}
+        onClose={() => setIsAiChatOpen(false)}
+        activeMap={activeMap}
+        settings={settings}
+        isMobile={isMobile}
+        onOpenSettings={() => setIsAiSettingsOpen(true)}
+        onFocusNode={handleFocusNode}
+        onAddNodeFromAi={handleAddNodeFromAi}
+        onUpdateSettings={handleSaveSettings}
+      />
+
+      {/* AI API & Model Settings Modal */}
+      <AiSettingsModal
+        isOpen={isAiSettingsOpen}
+        onClose={() => setIsAiSettingsOpen(false)}
+        settings={settings}
+        onSaveSettings={handleSaveSettings}
+      />
+
+      {/* Connect Nodes Direct Selector Modal */}
+      <ConnectNodesModal
+        isOpen={isConnectModalOpen}
+        onClose={() => setIsConnectModalOpen(false)}
+        nodes={activeMap.nodes}
+        edges={activeMap.edges}
+        onAddEdge={handleAddEdge}
+        onDeleteEdge={handleDeleteEdge}
       />
     </div>
   );

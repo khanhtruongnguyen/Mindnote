@@ -15,6 +15,8 @@ import {
   MoreVertical,
   Smartphone,
   Monitor,
+  Sparkles,
+  GitBranch,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -28,11 +30,14 @@ interface HeaderProps {
   onRenameMap: (mapId: string, newName: string) => void;
   onDeleteMap: (mapId: string) => void;
   onAddNode: () => void;
+  onOpenConnectModal?: () => void;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
   onOpenGistModal: () => void;
   onOpenHelpModal: () => void;
   hasGistConfigured: boolean;
+  isAiOpen?: boolean;
+  onToggleAi?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -46,11 +51,14 @@ export const Header: React.FC<HeaderProps> = ({
   onRenameMap,
   onDeleteMap,
   onAddNode,
+  onOpenConnectModal,
   onExportBackup,
   onImportBackup,
   onOpenGistModal,
   onOpenHelpModal,
   hasGistConfigured,
+  isAiOpen = false,
+  onToggleAi,
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -87,7 +95,13 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="absolute top-0 left-0 right-0 h-14 bg-[#141419]/95 backdrop-blur-md border-b border-[#252533] px-3 sm:px-4 flex items-center justify-between z-30 select-none">
+    <header
+      style={{
+        paddingTop: 'env(safe-area-inset-top, 0px)',
+        height: 'calc(3.5rem + env(safe-area-inset-top, 0px))',
+      }}
+      className="absolute top-0 left-0 right-0 bg-[#141419]/95 backdrop-blur-md border-b border-[#252533] px-3 sm:px-4 flex flex-col justify-end z-30 select-none"
+    >
       {/* Hidden file input for import */}
       <input
         type="file"
@@ -103,303 +117,370 @@ export const Header: React.FC<HeaderProps> = ({
         className="hidden"
       />
 
-      {/* Left: Brand & Map Selector */}
-      <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-        {/* Brand logo */}
-        <div className="flex items-center gap-1.5 pr-2 sm:pr-3 border-r border-zinc-800 shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-purple-600/30 text-base">
-            📒
-          </div>
-          <span className="text-sm font-bold tracking-tight text-white hidden md:inline">
-            Nexus<span className="text-purple-400">Notes</span>
-          </span>
-        </div>
-
-        {/* Current Map Selector Dropdown */}
-        <div className="relative min-w-0" ref={dropdownRef}>
-          <div className="flex items-center gap-1.5 bg-[#1c1c25] border border-[#2e2e3d] hover:border-zinc-600 rounded-xl px-2.5 sm:px-3 py-1.5 transition-colors">
-            {isEditingName ? (
-              <div className="flex items-center gap-1">
-                <input
-                  type="text"
-                  autoFocus
-                  value={editedName}
-                  onChange={(e) => setEditedName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleSaveRename();
-                    if (e.key === 'Escape') setIsEditingName(false);
-                  }}
-                  className="bg-transparent text-xs font-semibold text-white border-b border-purple-500 outline-none px-0.5 py-0 w-32 sm:w-44"
-                />
-                <button
-                  onClick={handleSaveRename}
-                  className="p-1 rounded text-purple-400 hover:text-white"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <>
-                <button
-                  onClick={() => setDropdownOpen(!dropdownOpen)}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-zinc-100 max-w-[130px] sm:max-w-[180px] md:max-w-[220px] truncate"
-                >
-                  <Layers className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                  <span className="truncate">{activeMap.name}</span>
-                  <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
-                </button>
-                {!isMobile && (
-                  <button
-                    onClick={() => setIsEditingName(true)}
-                    title="Đổi tên Map này"
-                    className="p-1 rounded text-zinc-500 hover:text-zinc-200"
-                  >
-                    <Edit2 className="w-3 h-3" />
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Dropdown Menu */}
-          {dropdownOpen && (
-            <div className="absolute top-11 left-0 w-64 bg-[#1a1a24] border border-[#2e2e3e] rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
-              <div className="px-3 py-1.5 text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
-                Bản đồ của bạn ({maps.length})
-              </div>
-
-              <div className="max-h-60 overflow-y-auto py-1">
-                {maps.map((m) => {
-                  const isActive = m.id === activeMap.id;
-                  return (
-                    <div
-                      key={m.id}
-                      className={`group flex items-center justify-between px-3 py-2 text-xs transition-colors cursor-pointer ${
-                        isActive
-                          ? 'bg-purple-600/20 text-purple-300 font-semibold border-l-2 border-purple-500'
-                          : 'text-zinc-300 hover:bg-[#232330]'
-                      }`}
-                      onClick={() => {
-                        onSelectMap(m.id);
-                        setDropdownOpen(false);
-                      }}
-                    >
-                      <span className="truncate pr-2">{m.name}</span>
-                      {maps.length > 1 && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (confirm(`Xác nhận xóa bản đồ "${m.name}"?`)) {
-                              onDeleteMap(m.id);
-                            }
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-500 hover:text-rose-400 transition-opacity"
-                          title="Xóa Map này"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="border-t border-[#2a2a38] pt-1 mt-1 px-1.5">
-                <button
-                  onClick={() => {
-                    setDropdownOpen(false);
-                    onOpenNewMapModal();
-                  }}
-                  className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-purple-300 hover:bg-purple-600/20 transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Tạo Bản đồ mới</span>
-                </button>
-              </div>
+      {/* Main bar strictly below notch / status bar */}
+      <div className="h-14 w-full flex items-center justify-between">
+        {/* Left: Brand & Map Selector */}
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* Brand logo */}
+          <div className="flex items-center gap-1.5 pr-2 sm:pr-3 border-r border-zinc-800 shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center shadow-lg shadow-purple-600/30 text-base">
+              📒
             </div>
-          )}
-        </div>
-      </div>
+            <span className="text-sm font-bold tracking-tight text-white hidden md:inline">
+              Nexus<span className="text-purple-400">Notes</span>
+            </span>
+          </div>
 
-      {/* Right Controls */}
-      <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
-        {/* Desktop Add Node button */}
-        {!isMobile && (
-          <button
-            onClick={onAddNode}
-            title="Thêm nút mới vào giữa màn hình"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/30 transition-all hover:scale-[1.02]"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Thêm nút</span>
-          </button>
-        )}
-
-        {/* Desktop Export / Backup */}
-        {!isMobile && (
-          <button
-            onClick={onExportBackup}
-            title="Xuất file JSON sao lưu"
-            className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
-          >
-            <Download className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* Desktop Import */}
-        {!isMobile && (
-          <button
-            onClick={() => fileImportRef.current?.click()}
-            title="Nhập file JSON sao lưu"
-            className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
-          >
-            <Upload className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* Desktop Gist Sync Button */}
-        {!isMobile && (
-          <button
-            onClick={onOpenGistModal}
-            title={hasGistConfigured ? 'GitHub Gist đã kết nối' : 'Kết nối GitHub Gist'}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors ${
-              hasGistConfigured
-                ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
-                : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-400 hover:text-white'
-            }`}
-          >
-            <Cloud className="w-3.5 h-3.5" />
-            <span>Gist Sync</span>
-            {hasGistConfigured && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-          </button>
-        )}
-
-        {/* Desktop Help */}
-        {!isMobile && (
-          <button
-            onClick={onOpenHelpModal}
-            title="Hướng dẫn & Phím tắt"
-            className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
-          >
-            <HelpCircle className="w-4 h-4" />
-          </button>
-        )}
-
-        {/* Device Mode Switcher (Dropdown or Button) */}
-        <div className="relative" ref={mobileMenuRef}>
-          {isMobile ? (
-            /* Mobile 3-dot hamburger menu */
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-300 hover:text-white"
-              title="Menu mở rộng"
-            >
-              <MoreVertical className="w-4 h-4" />
-            </button>
-          ) : (
-            /* Desktop toggle device mode */
-            <button
-              onClick={() => {
-                const nextMode = devicePreference === 'mobile' ? 'desktop' : devicePreference === 'desktop' ? 'auto' : 'mobile';
-                onChangeDeviceMode(nextMode);
-              }}
-              title={`Chế độ hiện tại: ${devicePreference}. Bấm để chuyển đổi.`}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white text-xs font-medium"
-            >
-              {devicePreference === 'mobile' ? (
-                <>
-                  <Smartphone className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Mobile</span>
-                </>
-              ) : devicePreference === 'desktop' ? (
-                <>
-                  <Monitor className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Desktop</span>
-                </>
+          {/* Current Map Selector Dropdown */}
+          <div className="relative min-w-0" ref={dropdownRef}>
+            <div className="flex items-center gap-1.5 bg-[#1c1c25] border border-[#2e2e3d] hover:border-zinc-600 rounded-xl px-2.5 sm:px-3 py-1.5 transition-colors">
+              {isEditingName ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={editedName}
+                    onChange={(e) => setEditedName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleSaveRename();
+                      if (e.key === 'Escape') setIsEditingName(false);
+                    }}
+                    className="bg-transparent text-xs font-semibold text-white border-b border-purple-500 outline-none px-0.5 py-0 w-32 sm:w-44"
+                  />
+                  <button
+                    onClick={handleSaveRename}
+                    className="p-1 rounded text-purple-400 hover:text-white"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               ) : (
                 <>
-                  <Monitor className="w-3.5 h-3.5" />
-                  <span>Tự động</span>
+                  <button
+                    onClick={() => setDropdownOpen(!dropdownOpen)}
+                    className="flex items-center gap-1.5 text-xs font-semibold text-zinc-100 max-w-[130px] sm:max-w-[180px] md:max-w-[220px] truncate"
+                  >
+                    <Layers className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                    <span className="truncate">{activeMap.name}</span>
+                    <ChevronDown className="w-3 h-3 text-zinc-400 shrink-0" />
+                  </button>
+                  {!isMobile && (
+                    <button
+                      onClick={() => setIsEditingName(true)}
+                      title="Đổi tên Map này"
+                      className="p-1 rounded text-zinc-500 hover:text-zinc-200"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  )}
                 </>
               )}
+            </div>
+
+            {/* Dropdown Menu */}
+            {dropdownOpen && (
+              <div className="absolute top-11 left-0 w-64 bg-[#1a1a24] border border-[#2e2e3e] rounded-xl shadow-2xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-150">
+                <div className="px-3 py-1.5 text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+                  Bản đồ của bạn ({maps.length})
+                </div>
+
+                <div className="max-h-60 overflow-y-auto py-1">
+                  {maps.map((m) => {
+                    const isActive = m.id === activeMap.id;
+                    return (
+                      <div
+                        key={m.id}
+                        className={`group flex items-center justify-between px-3 py-2 text-xs transition-colors cursor-pointer ${
+                          isActive
+                            ? 'bg-purple-600/20 text-purple-300 font-semibold border-l-2 border-purple-500'
+                            : 'text-zinc-300 hover:bg-[#232330]'
+                        }`}
+                        onClick={() => {
+                          onSelectMap(m.id);
+                          setDropdownOpen(false);
+                        }}
+                      >
+                        <span className="truncate pr-2">{m.name}</span>
+                        {maps.length > 1 && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm(`Xác nhận xóa bản đồ "${m.name}"?`)) {
+                                onDeleteMap(m.id);
+                              }
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-500 hover:text-rose-400 transition-opacity"
+                            title="Xóa Map này"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="border-t border-[#2a2a38] pt-1 mt-1 px-1.5">
+                  <button
+                    onClick={() => {
+                      setDropdownOpen(false);
+                      onOpenNewMapModal();
+                    }}
+                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-purple-300 hover:bg-purple-600/20 transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Tạo Bản đồ mới</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Controls */}
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* AI Assistant Button (Desktop) */}
+          {!isMobile && (
+            <button
+              onClick={onToggleAi}
+              title="Mở Trợ lý Mind Map AI"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold shadow-md transition-all hover:scale-[1.02] cursor-pointer ${
+                isAiOpen
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 border-purple-400 text-white shadow-purple-600/35 ring-1 ring-purple-400/50'
+                  : 'bg-[#1b1928] border-purple-500/40 text-purple-300 hover:text-white hover:border-purple-400 shadow-purple-950/30'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-300 animate-pulse" />
+              <span>Hỏi AI</span>
             </button>
           )}
 
-          {/* Mobile Popover Menu */}
-          {mobileMenuOpen && (
-            <div className="absolute top-12 right-0 w-56 bg-[#1a1a24] border border-[#2e2e3e] rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1 text-xs">
+          {/* Desktop Add Node button */}
+          {!isMobile && (
+            <button
+              onClick={onAddNode}
+              title="Thêm nút mới vào giữa màn hình"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/30 transition-all hover:scale-[1.02]"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Thêm nút</span>
+            </button>
+          )}
+
+          {/* Desktop Connect Nodes button */}
+          {!isMobile && (
+            <button
+              onClick={onOpenConnectModal}
+              title="Nối liên kết giữa các ô (không cần kéo thả)"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-300 hover:text-white hover:border-purple-500/40 text-xs font-medium transition-colors"
+            >
+              <GitBranch className="w-3.5 h-3.5 text-purple-400" />
+              <span>Nối ô</span>
+            </button>
+          )}
+
+          {/* Desktop Export / Backup */}
+          {!isMobile && (
+            <button
+              onClick={onExportBackup}
+              title="Xuất file JSON sao lưu"
+              className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Desktop Import */}
+          {!isMobile && (
+            <button
+              onClick={() => fileImportRef.current?.click()}
+              title="Nhập file JSON sao lưu"
+              className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
+            >
+              <Upload className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Desktop Gist Sync Button */}
+          {!isMobile && (
+            <button
+              onClick={onOpenGistModal}
+              title={hasGistConfigured ? 'GitHub Gist đã kết nối' : 'Kết nối GitHub Gist'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors ${
+                hasGistConfigured
+                  ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                  : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Cloud className="w-3.5 h-3.5" />
+              <span>Gist Sync</span>
+              {hasGistConfigured && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+            </button>
+          )}
+
+          {/* Desktop Help */}
+          {!isMobile && (
+            <button
+              onClick={onOpenHelpModal}
+              title="Hướng dẫn & Phím tắt"
+              className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
+            >
+              <HelpCircle className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Device Mode Switcher (Dropdown or Button) */}
+          <div className="relative flex items-center gap-1.5" ref={mobileMenuRef}>
+            {isMobile && (
+              <button
+                onClick={onToggleAi}
+                className={`p-2 rounded-xl border transition-all ${
+                  isAiOpen
+                    ? 'bg-purple-600 border-purple-400 text-white shadow-lg shadow-purple-600/40'
+                    : 'bg-[#1c1a27] border-purple-500/40 text-purple-300 hover:text-white'
+                }`}
+                title="Mở Trợ lý Mind Map AI"
+              >
+                <Sparkles className="w-4 h-4 animate-pulse text-purple-300" />
+              </button>
+            )}
+
+            {isMobile ? (
+              /* Mobile 3-dot hamburger menu */
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-300 hover:text-white"
+                title="Menu mở rộng"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </button>
+            ) : (
+              /* Desktop toggle device mode */
               <button
                 onClick={() => {
-                  setMobileMenuOpen(false);
-                  onOpenGistModal();
+                  const nextMode = devicePreference === 'mobile' ? 'desktop' : devicePreference === 'desktop' ? 'auto' : 'mobile';
+                  onChangeDeviceMode(nextMode);
                 }}
-                className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                title={`Chế độ hiện tại: ${devicePreference}. Bấm để chuyển đổi.`}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white text-xs font-medium"
               >
-                <span className="flex items-center gap-2">
-                  <Cloud className="w-4 h-4 text-purple-400" />
-                  <span>Đồng bộ Gist</span>
-                </span>
-                {hasGistConfigured && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
+                {devicePreference === 'mobile' ? (
+                  <>
+                    <Smartphone className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Mobile</span>
+                  </>
+                ) : devicePreference === 'desktop' ? (
+                  <>
+                    <Monitor className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Desktop</span>
+                  </>
+                ) : (
+                  <>
+                    <Monitor className="w-3.5 h-3.5" />
+                    <span>Tự động</span>
+                  </>
+                )}
               </button>
+            )}
 
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  onExportBackup();
-                }}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
-              >
-                <Download className="w-4 h-4 text-blue-400" />
-                <span>Xuất file JSON sao lưu</span>
-              </button>
+            {/* Mobile Popover Menu */}
+            {mobileMenuOpen && (
+              <div className="absolute top-12 right-0 w-56 bg-[#1a1a24] border border-[#2e2e3e] rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1 text-xs">
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onToggleAi?.();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-purple-200 bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+                >
+                  <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" />
+                  <span className="font-semibold">Trợ lý Mind Map AI</span>
+                </button>
 
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  fileImportRef.current?.click();
-                }}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
-              >
-                <Upload className="w-4 h-4 text-emerald-400" />
-                <span>Nhập file JSON sao lưu</span>
-              </button>
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenConnectModal?.();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                >
+                  <GitBranch className="w-4 h-4 text-purple-400" />
+                  <span>Nối liên kết các ô</span>
+                </button>
 
-              <button
-                onClick={() => {
-                  setMobileMenuOpen(false);
-                  onOpenHelpModal();
-                }}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
-              >
-                <HelpCircle className="w-4 h-4 text-amber-400" />
-                <span>Hướng dẫn & Xóa liên kết</span>
-              </button>
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenGistModal();
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Cloud className="w-4 h-4 text-purple-400" />
+                    <span>Đồng bộ Gist</span>
+                  </span>
+                  {hasGistConfigured && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
+                </button>
 
-              <div className="border-t border-zinc-800 my-1 pt-1">
-                <div className="px-3 py-1 text-[10px] uppercase font-semibold text-zinc-500">
-                  Giao diện hiển thị
-                </div>
-                <div className="grid grid-cols-3 gap-1 px-1">
-                  {(['auto', 'mobile', 'desktop'] as DeviceMode[]).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => {
-                        onChangeDeviceMode(mode);
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`py-1 rounded-lg text-center font-medium capitalize text-[11px] ${
-                        devicePreference === mode
-                          ? 'bg-purple-600 text-white font-bold'
-                          : 'bg-zinc-800 text-zinc-400 hover:text-white'
-                      }`}
-                    >
-                      {mode === 'auto' ? 'Tự động' : mode === 'mobile' ? 'Mobile' : 'PC'}
-                    </button>
-                  ))}
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onExportBackup();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                >
+                  <Download className="w-4 h-4 text-blue-400" />
+                  <span>Xuất file JSON sao lưu</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    fileImportRef.current?.click();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                >
+                  <Upload className="w-4 h-4 text-emerald-400" />
+                  <span>Nhập file JSON sao lưu</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenHelpModal();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                >
+                  <HelpCircle className="w-4 h-4 text-amber-400" />
+                  <span>Hướng dẫn & Xóa liên kết</span>
+                </button>
+
+                <div className="border-t border-zinc-800 my-1 pt-1">
+                  <div className="px-3 py-1 text-[10px] uppercase font-semibold text-zinc-500">
+                    Giao diện hiển thị
+                  </div>
+                  <div className="grid grid-cols-3 gap-1 px-1">
+                    {(['auto', 'mobile', 'desktop'] as DeviceMode[]).map((mode) => (
+                      <button
+                        key={mode}
+                        onClick={() => {
+                          onChangeDeviceMode(mode);
+                          setMobileMenuOpen(false);
+                        }}
+                        className={`py-1 rounded-lg text-center font-medium capitalize text-[11px] ${
+                          devicePreference === mode
+                            ? 'bg-purple-600 text-white font-bold'
+                            : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {mode === 'auto' ? 'Tự động' : mode === 'mobile' ? 'Mobile' : 'PC'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </header>

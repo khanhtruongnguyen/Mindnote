@@ -39,4 +39,26 @@ export interface AppSettings {
   githubToken?: string;
   gistId?: string;
   lastSyncedAt?: number;
+  aiBaseUrl?: string;
+  aiApiKey?: string;
+  aiModel?: string;
+  cachedModels?: string[];
+  saveChatHistory?: boolean;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  reasoningContent?: string;
+  createdAt: number;
+}
+
+export interface ChatSession {
+  id: string;
+  mapId: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
 }
