@@ -80,14 +80,20 @@ export function App() {
     [activeMap.attachments, handleUpdateCurrentMap]
   );
 
-  // Auto-save maps to local storage
+  // Auto-save maps to local storage (Debounced 300ms de tranh nghen main UI thread)
   useEffect(() => {
-    StorageService.saveMaps(maps);
+    const timer = setTimeout(() => {
+      StorageService.saveMaps(maps);
+    }, 300);
+    return () => clearTimeout(timer);
   }, [maps]);
 
-  // Auto-save settings
+  // Auto-save settings (Debounced 300ms)
   useEffect(() => {
-    StorageService.saveSettings({ ...settings, activeMapId });
+    const timer = setTimeout(() => {
+      StorageService.saveSettings({ ...settings, activeMapId });
+    }, 300);
+    return () => clearTimeout(timer);
   }, [settings, activeMapId]);
 
   // Đọc Deep Link từ URL khi mới mở ứng dụng (?map=xxx&note=yyy)

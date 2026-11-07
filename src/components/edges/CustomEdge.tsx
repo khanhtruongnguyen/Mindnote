@@ -21,7 +21,6 @@ export const CustomEdge: React.FC<EdgeProps> = ({
   sourcePosition,
   targetPosition,
   style = {},
-  markerEnd,
   selected,
   data,
 }) => {
@@ -38,7 +37,8 @@ export const CustomEdge: React.FC<EdgeProps> = ({
 
   return (
     <>
-      <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
+      {/* Đường nối cong mềm mại (không dùng mũi tên để tránh rối mắt và nhầm hướng) */}
+      <BaseEdge path={edgePath} style={style} />
       {/* Nút xóa liên kết khi chạm/chọn đường nối */}
       {selected && (
         <EdgeLabelRenderer>

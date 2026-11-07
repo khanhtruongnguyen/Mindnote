@@ -100,7 +100,7 @@
   border-radius: 50% !important;
   background-color: #4b4b58 !important;
   border: 2px solid #16161a !important;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  transition: opacity 0.15s ease, background-color 0.15s ease !important;
   opacity: 0.2;
 }
 
@@ -109,8 +109,13 @@
 .react-flow__node.selected .react-flow__handle {
   opacity: 1;
   background-color: #8b5cf6 !important;
-  transform: scale(1.25);
   box-shadow: 0 0 8px rgba(139, 92, 246, 0.6);
+}
+
+/* GPU Acceleration for canvas nodes */
+.react-flow__node {
+  will-change: transform;
+  transform: translateZ(0);
 }
 
 /* KaTeX custom sizing in markdown */

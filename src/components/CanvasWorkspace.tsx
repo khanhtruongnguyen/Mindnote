@@ -9,7 +9,6 @@ import {
   addEdge,
   useReactFlow,
   BackgroundVariant,
-  MarkerType,
   type Connection,
   type Edge,
   type NodeMouseHandler,
@@ -188,12 +187,6 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         type: 'custom',
         animated: true,
         style: { stroke: accentColor, strokeWidth: 2 },
-        markerEnd: {
-          type: MarkerType.ArrowClosed,
-          color: accentColor,
-          width: 16,
-          height: 16,
-        },
         data: {
           onDelete: handleDeleteEdge,
         },
@@ -273,12 +266,8 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         defaultEdgeOptions={{
           type: 'custom',
           animated: true,
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            width: 16,
-            height: 16,
-          },
         }}
+        onlyRenderVisibleElements={true}
         proOptions={{ hideAttribution: true }}
       >
         {/* Obsidian Dot Grid */}
