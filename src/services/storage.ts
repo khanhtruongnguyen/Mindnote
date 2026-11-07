@@ -175,6 +175,10 @@ export const DEFAULT_AI_CONFIG = {
 };
 
 export const StorageService = {
+  isDesktop(): boolean {
+    return typeof window !== 'undefined' && Boolean(window.mindnoteDesktop?.isDesktop);
+  },
+
   cleanMapsData(maps: MapData[]): MapData[] {
     if (!Array.isArray(maps)) return [];
     try {
@@ -202,6 +206,39 @@ export const StorageService = {
 
   async init(): Promise<void> {
     try {
+      // Nếu đang chạy bản Desktop Electron: Ưu tiên nạp và đồng bộ vào thư mục Vault trên ổ cứng
+      if (this.isDesktop() && window.mindnoteDesktop) {
+        try {
+          const desktopMaps = await window.mindnoteDesktop.loadMaps();
+          if (!desktopMaps || desktopMaps.length === 0) {
+            // Nếu file maps.json trên ổ cứng chưa có, kiểm tra IndexedDB / localStorage để tự chuyển dữ liệu vào
+            await openDB().catch(() => {});
+            const idbMaps = await idbGetAllMaps().catch(() => null);
+            let mapsToSeed: MapData[] = [];
+            if (idbMaps && idbMaps.length > 0) {
+              mapsToSeed = idbMaps;
+            } else {
+              const localData = localStorage.getItem(STORAGE_MAPS_KEY);
+              if (localData) {
+                try {
+                  const parsed = JSON.parse(localData);
+                  if (Array.isArray(parsed) && parsed.length > 0) mapsToSeed = parsed;
+                } catch {}
+              }
+            }
+
+            if (mapsToSeed.length > 0) {
+              await window.mindnoteDesktop.saveMaps(this.cleanMapsData(mapsToSeed));
+              console.log(`[Desktop Storage] Đã khởi tạo thành công ${mapsToSeed.length} bản đồ vào thư mục Documents/MindnoteVault.`);
+            } else {
+              await window.mindnoteDesktop.saveMaps([DEFAULT_STARTER_MAP]);
+            }
+          }
+        } catch (desktopErr) {
+          console.warn('[Desktop Storage] Không thể khởi tạo Vault, fallback sang IndexedDB:', desktopErr);
+        }
+      }
+
       await openDB();
 
       // Check if migration is needed
@@ -275,6 +312,18 @@ export const StorageService = {
 
   async getMaps(): Promise<MapData[]> {
     try {
+      // 1. Nếu là Desktop Electron, đọc trực tiếp từ ổ cứng SSD (Documents/MindnoteVault/maps.json)
+      if (this.isDesktop() && window.mindnoteDesktop) {
+        try {
+          const desktopMaps = await window.mindnoteDesktop.loadMaps();
+          if (desktopMaps && desktopMaps.length > 0) {
+            return this.cleanMapsData(desktopMaps);
+          }
+        } catch (err) {
+          console.warn('[Desktop Storage] Lỗi khi nạp từ Vault ổ cứng, chuyển sang dự phòng IndexedDB:', err);
+        }
+      }
+
       const fromDb = await idbGetAllMaps();
 
       // Kiểm tra localStorage dự phòng xem có dữ liệu mới hơn không
@@ -321,14 +370,23 @@ export const StorageService = {
     try {
       const cleaned = this.cleanMapsData(maps);
 
-      // 1. Luôn ghi song song vào localStorage để dự phòng khẩn cấp
+      // 1. Nếu là Desktop: Lưu trực tiếp vào file maps.json trong thư mục Vault trên ổ cứng
+      if (this.isDesktop() && window.mindnoteDesktop) {
+        try {
+          await window.mindnoteDesktop.saveMaps(cleaned);
+        } catch (desktopErr) {
+          console.error('[Desktop Storage] Lỗi ghi file vào Vault:', desktopErr);
+        }
+      }
+
+      // 2. Luôn ghi song song vào localStorage để dự phòng khẩn cấp
       try {
         localStorage.setItem(STORAGE_MAPS_KEY, JSON.stringify(cleaned));
       } catch (err) {
         // Bỏ qua nếu localStorage bị đầy (QuotaExceeded)
       }
 
-      // 2. Ghi chính vào IndexedDB dung lượng lớn
+      // 3. Ghi vào IndexedDB dung lượng lớn
       const ok = await idbSaveAllMaps(cleaned);
       if (!ok) {
         console.warn('[Storage] Ghi IndexedDB gặp trục trặc, dữ liệu đã được bảo toàn ở localStorage dự phòng.');
@@ -410,8 +468,12 @@ export const StorageService = {
     }
   },
 
-  exportBackup(maps: MapData[]) {
+  async exportBackup(maps: MapData[]): Promise<void> {
     const cleaned = this.cleanMapsData(maps);
+    if (this.isDesktop() && window.mindnoteDesktop) {
+      await window.mindnoteDesktop.exportBackupDialog(cleaned);
+      return;
+    }
     const jsonStr = JSON.stringify(cleaned, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);

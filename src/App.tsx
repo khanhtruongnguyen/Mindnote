@@ -124,12 +124,23 @@ export function App() {
     [activeMap.id]
   );
 
-  // Save image attachment handler (Tự động tải lên Supabase Storage CDN nếu đã kết nối)
+  // Save image attachment handler (Lưu file vào Desktop Vault nếu chạy Electron, hoặc tải lên Supabase CDN)
   const handleSaveAttachment = useCallback(
     async (attachId: string, base64: string) => {
       let finalUri = base64;
 
-      if (settings.supabaseUrl && settings.supabaseAnonKey) {
+      // 1. Bản Desktop: Lưu thành file vật lý trong Documents\MindnoteVault\attachments\
+      if (typeof window !== 'undefined' && window.mindnoteDesktop?.isDesktop) {
+        try {
+          const localAssetUrl = await window.mindnoteDesktop.saveAttachment(attachId, base64);
+          if (localAssetUrl) {
+            finalUri = localAssetUrl;
+          }
+        } catch (e) {
+          console.warn('Lỗi khi lưu ảnh xuống máy tính:', e);
+        }
+      } else if (settings.supabaseUrl && settings.supabaseAnonKey) {
+        // 2. Bản Web: Tải lên Supabase Storage CDN nếu có cấu hình
         try {
           const cdnUrl = await uploadAttachmentToSupabase(attachId, base64);
           if (cdnUrl) {
@@ -708,6 +719,23 @@ export function App() {
     }
   };
 
+  const handleDesktopImport = async () => {
+    if (!window.mindnoteDesktop?.isDesktop) return;
+    try {
+      const imported = await window.mindnoteDesktop.importBackupDialog();
+      if (!imported) return; // Người dùng hủy chọn
+      setMaps(imported);
+      if (imported.length > 0) {
+        setActiveMapId(imported[0].id);
+        setSelectedNodeId(null);
+      }
+      alert(`Đã nạp thành công ${imported.length} bản đồ ghi chú vào Vault!`);
+    } catch (e: unknown) {
+      const err = e as Error;
+      alert(`Lỗi khi nhập file: ${err.message}`);
+    }
+  };
+
   if (!isStorageReady) {
     return (
       <div className="w-screen h-screen bg-[#121215] flex flex-col items-center justify-center gap-3 select-none">
@@ -736,6 +764,7 @@ export function App() {
         onAddNode={handleAddNodeCenter}
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
+        onDesktopImport={handleDesktopImport}
         onOpenGistModal={() => setIsGistModalOpen(true)}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         onOpenHelpModal={() => setIsHelpModalOpen(true)}

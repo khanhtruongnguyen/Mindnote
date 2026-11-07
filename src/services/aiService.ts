@@ -403,12 +403,32 @@ ${instruction}`;
     // Payload người dùng: nếu có ảnh đính kèm, gửi dạng Multimodal Image Parts
     let userMessageContent: unknown = userPrompt;
     if (images && images.length > 0) {
+      // Chuyển đổi mindnote-asset:// sang Base64 trong bộ nhớ RAM cho API AI nếu chạy bản Desktop
+      const resolvedImages = await Promise.all(
+        images.map(async (img) => {
+          if (img.startsWith('mindnote-asset://')) {
+            try {
+              const r = await fetch(img);
+              const blob = await r.blob();
+              return await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve((reader.result as string) || img);
+                reader.readAsDataURL(blob);
+              });
+            } catch {
+              return img;
+            }
+          }
+          return img;
+        })
+      );
+
       userMessageContent = [
         {
           type: 'text',
           text: `${userPrompt}\n\n(Dưới đây là hình ảnh đính kèm của ô ghi chú này, hãy đọc kỹ hình ảnh để giải thích và kết hợp vào bài viết):`,
         },
-        ...images.map((img) => ({
+        ...resolvedImages.map((img) => ({
           type: 'image_url',
           image_url: { url: img },
         })),

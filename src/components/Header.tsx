@@ -20,6 +20,7 @@ import {
   Share2,
   Brain,
   Database,
+  FolderOpen,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -38,6 +39,7 @@ interface HeaderProps {
   hasContext?: boolean;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
+  onDesktopImport?: () => void;
   onOpenGistModal: () => void;
   onOpenSupabaseModal?: () => void;
   onOpenHelpModal: () => void;
@@ -63,6 +65,7 @@ export const Header: React.FC<HeaderProps> = ({
   hasContext = false,
   onExportBackup,
   onImportBackup,
+  onDesktopImport,
   onOpenGistModal,
   onOpenSupabaseModal,
   onOpenHelpModal,
@@ -71,6 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
   isAiOpen = false,
   onToggleAi,
 }) => {
+  const isDesktop = typeof window !== 'undefined' && Boolean(window.mindnoteDesktop?.isDesktop);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -338,7 +342,7 @@ export const Header: React.FC<HeaderProps> = ({
           {!isMobile && (
             <button
               onClick={onExportBackup}
-              title="Xuất file JSON sao lưu"
+              title={isDesktop ? "Xuất file JSON sao lưu ra máy tính" : "Xuất file JSON sao lưu"}
               className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
             >
               <Download className="w-4 h-4" />
@@ -348,11 +352,29 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Desktop Import */}
           {!isMobile && (
             <button
-              onClick={() => fileImportRef.current?.click()}
-              title="Nhập file JSON sao lưu"
+              onClick={() => {
+                if (isDesktop && onDesktopImport) {
+                  onDesktopImport();
+                } else {
+                  fileImportRef.current?.click();
+                }
+              }}
+              title={isDesktop ? "Nhập file JSON sao lưu từ máy tính" : "Nhập file JSON sao lưu"}
               className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
             >
               <Upload className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Desktop Mode Vault Folder Button */}
+          {!isMobile && isDesktop && (
+            <button
+              onClick={() => window.mindnoteDesktop?.openVaultFolder()}
+              title="Mở thư mục MindnoteVault lưu trên máy tính (Documents\MindnoteVault)"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-purple-950/40 border border-purple-500/40 text-purple-300 hover:text-white hover:border-purple-400 text-xs font-medium transition-colors shadow-sm"
+            >
+              <FolderOpen className="w-3.5 h-3.5 text-purple-400" />
+              <span>Vault SSD</span>
             </button>
           )}
 

@@ -95,3 +95,29 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
 }
+
+export interface MindnoteDesktopBridge {
+  isDesktop: boolean;
+  getVaultInfo: () => Promise<{
+    vaultPath: string;
+    attachmentsPath: string;
+    mapCount: number;
+    attachCount: number;
+  }>;
+  openVaultFolder: () => Promise<boolean>;
+  loadMaps: () => Promise<MapData[] | null>;
+  saveMaps: (maps: MapData[]) => Promise<boolean>;
+  saveAttachment: (attachId: string, base64: string) => Promise<string | null>;
+  importBackupDialog: () => Promise<MapData[] | null>;
+  exportBackupDialog: (maps: MapData[]) => Promise<boolean>;
+  minimizeWindow: () => Promise<void>;
+  maximizeWindow: () => Promise<void>;
+  closeWindow: () => Promise<void>;
+}
+
+declare global {
+  interface Window {
+    mindnoteDesktop?: MindnoteDesktopBridge;
+  }
+}
+
