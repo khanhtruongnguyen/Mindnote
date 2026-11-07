@@ -30,5 +30,16 @@
   <body class="bg-[#121215] text-zinc-100 antialiased selection:bg-purple-600/30 selection:text-purple-200 overflow-hidden touch-manipulation">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Đăng ký Service Worker cho trải nghiệm Offline 100% trên iPhone / iPad / Android
+      if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./sw.js').then(
+            (reg) => console.log('[PWA] Service Worker sẵn sàng hoạt động Offline:', reg.scope),
+            (err) => console.warn('[PWA] Đăng ký Service Worker:', err)
+          );
+        });
+      }
+    </script>
   </body>
 </html>

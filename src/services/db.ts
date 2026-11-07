@@ -43,6 +43,11 @@ export function openDB(): Promise<IDBDatabase | null> {
           dbInstance = null;
         };
         resolve(dbInstance);
+
+        // Yêu cầu Safari / WebKit bảo vệ IndexedDB vĩnh viễn, chống tự động dọn rác
+        if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.persist) {
+          navigator.storage.persist().catch(() => {});
+        }
       };
 
       request.onerror = (event) => {

@@ -932,13 +932,11 @@ export function App() {
         onDesktopImport={handleDesktopImport}
         onPickGoogleDrive={handlePickGoogleDrive}
         onOpenGoogleDriveModal={() => setIsGoogleDriveModalOpen(true)}
-        onOpenGistModal={() => setIsGistModalOpen(true)}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         onOpenHelpModal={() => setIsHelpModalOpen(true)}
         onOpenConnectModal={() => setIsConnectModalOpen(true)}
         onOpenContextModal={() => setIsContextModalOpen(true)}
         hasContext={Boolean(activeMap.context?.trim())}
-        hasGistConfigured={Boolean(settings.githubToken && settings.gistId)}
         hasSupabaseConfigured={Boolean(settings.supabaseUrl && settings.supabaseAnonKey)}
         isAiOpen={isAiChatOpen}
         onToggleAi={() => setIsAiChatOpen((prev) => !prev)}
