@@ -32,6 +32,9 @@ import {
   Loader2,
   Check,
   Brain,
+  Camera,
+  ScanText,
+  Upload,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -95,6 +98,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [aiWriterResult, setAiWriterResult] = useState<string | null>(null);
   const [aiCustomInstruction, setAiCustomInstruction] = useState('');
   const [aiWriterError, setAiWriterError] = useState<string | null>(null);
+  const [tempVisionImage, setTempVisionImage] = useState<string | null>(null);
+  const visionFileInputRef = useRef<HTMLInputElement>(null);
 
   // AI Branch Generator states
   const [isGeneratingBranches, setIsGeneratingBranches] = useState(false);
@@ -208,8 +213,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  // Xử lý ảnh tạm cho AI Vision / OCR mà không cần lưu vào note
+  const handleVisionFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setTempVisionImage(base64);
+      };
+      reader.readAsDataURL(file);
+    }
+    if (visionFileInputRef.current) visionFileInputRef.current.value = '';
+  };
+
   // AI Note Writing Handlers
-  const handleRunAiWriter = async (mode: 'expand' | 'summarize' | 'formula' | 'polish' | 'custom' | 'explain_image') => {
+  const handleRunAiWriter = async (
+    mode:
+      | 'expand'
+      | 'summarize'
+      | 'formula'
+      | 'polish'
+      | 'custom'
+      | 'explain_image'
+      | 'format_table_css'
+      | 'ocr_image'
+      | 'describe_image',
+    overrideImage?: string
+  ) => {
     if (!selectedNode) return;
     setAiWriterLoading(true);
     setAiWriterError(null);
@@ -220,12 +251,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const apiKey = settings?.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
       const model = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
 
-      // Trích xuất hình ảnh đính kèm trong note nếu có
-      const imageRegex = /attachment:([^\s\)]+)/g;
-      const imageMatches = [...(selectedNode.data.content || '').matchAll(imageRegex)];
-      const imageList = imageMatches
-        .map((m) => attachments[m[1]])
-        .filter((b64): b64 is string => Boolean(b64));
+      let imageList: string[] = [];
+      if (overrideImage) {
+        imageList = [overrideImage];
+      } else {
+        // Trích xuất hình ảnh đính kèm trong note nếu có
+        const imageRegex = /attachment:([^\s\)]+)/g;
+        const imageMatches = [...(selectedNode.data.content || '').matchAll(imageRegex)];
+        imageList = imageMatches
+          .map((m) => attachments[m[1]])
+          .filter((b64): b64 is string => Boolean(b64));
+      }
 
       const result = await AiService.refineNoteContent({
         baseUrl,
@@ -980,23 +1016,121 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 disabled={aiWriterLoading}
+                onClick={() => handleRunAiWriter('format_table_css')}
+                title="Tự động chuẩn hóa bảng biểu, đóng khung callout box và ký tự khó dạng văn bản đẹp mắt"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-200 border border-cyan-500/40 hover:border-cyan-400 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+              >
+                <span>📊 Bảng & Ký tự đẹp (CSS)</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={aiWriterLoading}
                 onClick={() => handleRunAiWriter('polish')}
                 className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1f1f2e] hover:bg-[#28283d] text-zinc-200 border border-[#303046] hover:border-purple-500/50 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-50"
               >
                 <span>✍️ Sửa lỗi & trau chuốt</span>
               </button>
 
-              {/* Nếu note có ảnh, cho phép AI đọc ảnh */}
+              {/* Nếu note đã có ảnh, hiển thị các nút thao tác ảnh */}
               {selectedNode?.data.content?.includes('![') && (
-                <button
-                  type="button"
-                  disabled={aiWriterLoading}
-                  onClick={() => handleRunAiWriter('explain_image')}
-                  title="AI Gemini Vision đọc ảnh đính kèm và phân tích thành bài học"
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-500/50 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
-                >
-                  <span>🖼️ Đọc & Giải thích ảnh</span>
-                </button>
+                <>
+                  <button
+                    type="button"
+                    disabled={aiWriterLoading}
+                    onClick={() => handleRunAiWriter('ocr_image')}
+                    title="Trích xuất toàn bộ chữ, số liệu và bảng trong ảnh thành văn bản Markdown"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-300 border border-cyan-500/50 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+                  >
+                    <span>🔍 Trích chữ từ ảnh (OCR)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={aiWriterLoading}
+                    onClick={() => handleRunAiWriter('describe_image')}
+                    title="Nhìn ảnh và viết mô tả trực quan chi tiết để thay thế ảnh (Tiết kiệm dung lượng)"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-950/50 hover:bg-amber-900/60 text-amber-300 border border-amber-500/50 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+                  >
+                    <span>📝 Mô tả thay thế ảnh</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={aiWriterLoading}
+                    onClick={() => handleRunAiWriter('explain_image')}
+                    title="AI Gemini Vision đọc ảnh đính kèm và phân tích thành bài học"
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-500/50 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+                  >
+                    <span>🖼️ Giải thích ảnh</span>
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Trí tuệ Thị giác AI: Tải ảnh trực tiếp để OCR hoặc Mô tả mà KHÔNG CẦN DÁN ẢNH (Tiết kiệm dung lượng) */}
+            <div className="p-2.5 rounded-xl bg-[#171724] border border-[#2c2c40] space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-zinc-300 flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-purple-400" />
+                  <span>AI Nhìn ảnh (Không tốn dung lượng lưu trữ)</span>
+                </span>
+                {tempVisionImage && (
+                  <button
+                    type="button"
+                    onClick={() => setTempVisionImage(null)}
+                    className="text-[10px] text-zinc-400 hover:text-rose-400 cursor-pointer"
+                  >
+                    ✕ Hủy ảnh
+                  </button>
+                )}
+              </div>
+
+              {!tempVisionImage ? (
+                <div>
+                  <input
+                    type="file"
+                    ref={visionFileInputRef}
+                    onChange={handleVisionFileChange}
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => visionFileInputRef.current?.click()}
+                    className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-lg border border-dashed border-purple-500/40 hover:border-purple-400 bg-purple-500/5 hover:bg-purple-500/10 text-xs text-purple-200 font-medium cursor-pointer transition-colors"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Tải ảnh lên để AI đọc chữ hoặc mô tả (Chỉ lưu chữ, không lưu ảnh)</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 bg-[#111119] p-2 rounded-lg border border-zinc-800">
+                  <img
+                    src={tempVisionImage}
+                    alt="Ảnh tạm"
+                    className="w-14 h-14 object-cover rounded-lg border border-zinc-700 shrink-0"
+                  />
+                  <div className="flex-1 min-w-0 flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      disabled={aiWriterLoading}
+                      onClick={() => handleRunAiWriter('ocr_image', tempVisionImage)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-cyan-950/70 hover:bg-cyan-900 text-cyan-200 border border-cyan-500/50 text-[11px] font-semibold cursor-pointer disabled:opacity-50 shadow-sm"
+                    >
+                      <ScanText className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Trích xuất chữ (OCR)</span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={aiWriterLoading}
+                      onClick={() => handleRunAiWriter('describe_image', tempVisionImage)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-950/70 hover:bg-amber-900 text-amber-200 border border-amber-500/50 text-[11px] font-semibold cursor-pointer disabled:opacity-50 shadow-sm"
+                    >
+                      <span>📝 Mô tả thay thế ảnh</span>
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
 

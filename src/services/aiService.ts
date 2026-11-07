@@ -233,7 +233,16 @@ ${nodesInfo}
     model: string;
     nodeLabel: string;
     currentContent: string;
-    mode: 'expand' | 'summarize' | 'formula' | 'polish' | 'custom' | 'explain_image';
+    mode:
+      | 'expand'
+      | 'summarize'
+      | 'formula'
+      | 'polish'
+      | 'custom'
+      | 'explain_image'
+      | 'format_table_css'
+      | 'ocr_image'
+      | 'describe_image';
     customInstruction?: string;
     mapContext?: string;
     images?: string[];
@@ -257,6 +266,18 @@ ${nodesInfo}
       case 'polish':
         instruction =
           'Hãy sửa lỗi chính tả, cải thiện ngữ pháp, làm cho câu từ mượt mà, chuyên nghiệp và chuẩn hóa cấu trúc Markdown (tiêu đề, in đậm, callout box).';
+        break;
+      case 'format_table_css':
+        instruction =
+          'Hãy nhận diện toàn bộ bảng biểu thô, dữ liệu phân cột hoặc các ký tự rời rạc/khó đọc trong ô ghi chú này, và chuyển đổi thành: 1. Bảng Markdown chuẩn (| Cột 1 | Cột 2 |...) căn chỉnh ngay ngắn, 2. Khối đóng ô / Callout box (> 📌 [Tiêu đề]) phong cách Obsidian đẹp mắt, 3. Các ký tự toán/khoa học chuyển thành KaTeX ($...$). Đảm bảo trình bày chuẩn đẹp, không bị lỗi font hay vỡ cấu trúc bảng.';
+        break;
+      case 'ocr_image':
+        instruction =
+          'Hãy trích xuất TOÀN BỘ chữ viết, tiêu đề, số liệu, bảng biểu và công thức toán học/khoa học có trong hình ảnh này thành văn bản Markdown chuẩn 100%. Giữ nguyên cấu trúc bảng và dòng, KHÔNG bỏ sót bất kỳ thông tin nào.';
+        break;
+      case 'describe_image':
+        instruction =
+          'Hãy quan sát thật kỹ bức ảnh này và viết một bản MÔ TẢ TRỰC QUAN & PHÂN TÍCH TOÀN DIỆN để thay thế hoàn toàn cho bức ảnh (tiết kiệm dung lượng lưu trữ). Hãy mô tả chi tiết: 1. Tổng thể hình ảnh (sơ đồ gì, đồ thị gì, tiêu bản gì); 2. Chi tiết từng đối tượng, vị trí, các mũi tên liên kết chỉ từ đâu đến đâu; 3. Bản chất học thuật, ý nghĩa kiến thức và các công thức/số liệu đi kèm. Trình bày dưới dạng Markdown chuyên nghiệp với khung trích dẫn (> 🖼️ [Mô tả trực quan]) để người đọc chỉ cần đọc văn bản là hình dung rõ ràng như đang xem ảnh thật, và AI sau này đọc lại cũng hiểu 100%!';
         break;
       case 'explain_image':
         instruction =
