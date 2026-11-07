@@ -343,6 +343,175 @@ ipcMain.handle('desktop:normalize-imported-map', async (_event, map) => {
   }
 });
 
+// ==========================================
+// 10. GOOGLE DRIVE FOR DESKTOP TỰ ĐỘNG KẾT NỐI
+// ==========================================
+function detectGoogleDrivePath() {
+  const candidates = [
+    'G:\\My Drive',
+    'G:\\Mon Drive',
+    'G:\\Il mio Drive',
+    'G:\\',
+    path.join(app.getPath('home'), 'Google Drive', 'My Drive'),
+    path.join(app.getPath('home'), 'Google Drive'),
+  ];
+
+  for (let charCode = 68; charCode <= 90; charCode++) {
+    const driveLetter = String.fromCharCode(charCode);
+    candidates.push(`${driveLetter}:\\My Drive`);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+        return candidate;
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function getGoogleDriveMindnoteDir() {
+  const gDrivePath = detectGoogleDrivePath();
+  if (!gDrivePath) return null;
+  const mindnoteDir = path.join(gDrivePath, 'Mindnote');
+  if (!fs.existsSync(mindnoteDir)) {
+    try {
+      fs.mkdirSync(mindnoteDir, { recursive: true });
+    } catch (err) {
+      console.warn('Không thể tạo thư mục Mindnote trên Google Drive:', err);
+      return null;
+    }
+  }
+  return mindnoteDir;
+}
+
+function formatTimestampToSeconds(d = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  const year = d.getFullYear();
+  const month = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  const hours = pad(d.getHours());
+  const minutes = pad(d.getMinutes());
+  const seconds = pad(d.getSeconds());
+  return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+}
+
+// 10.1 Lấy thông tin Google Drive
+ipcMain.handle('desktop:get-gdrive-info', async () => {
+  const gDrivePath = detectGoogleDrivePath();
+  const mindnoteDir = getGoogleDriveMindnoteDir();
+  return {
+    isAvailable: Boolean(mindnoteDir),
+    gDrivePath,
+    mindnoteDir,
+  };
+});
+
+// 10.2 Mở thư mục Mindnote trên Google Drive
+ipcMain.handle('desktop:open-gdrive-folder', async () => {
+  const dir = getGoogleDriveMindnoteDir();
+  if (dir && fs.existsSync(dir)) {
+    await shell.openPath(dir);
+    return true;
+  }
+  return false;
+});
+
+// 10.3 Xuất nhanh sang Google Drive (Tự động lưu kèm ngày giờ đến từng giây)
+ipcMain.handle('desktop:export-to-gdrive', async (_event, { map, maps, isFullVault }) => {
+  try {
+    const mindnoteDir = getGoogleDriveMindnoteDir();
+    if (!mindnoteDir) {
+      return { success: false, error: 'Không tìm thấy Google Drive for Desktop (ổ G:\\ hoặc thư mục My Drive).' };
+    }
+
+    const timestamp = formatTimestampToSeconds();
+
+    if (isFullVault && Array.isArray(maps)) {
+      const fileName = `mindnote_vault_${timestamp}.json`;
+      const filePath = path.join(mindnoteDir, fileName);
+      fs.writeFileSync(filePath, JSON.stringify(maps, null, 2), 'utf8');
+      return {
+        success: true,
+        fileName,
+        filePath,
+        folder: mindnoteDir,
+        isFullVault: true,
+      };
+    } else if (map) {
+      // Xuất 1 map: Chuyển đổi các ảnh mindnote-asset:// thành Base64 để mang lên Web/iPhone mở được ngay
+      const preparedMap = JSON.parse(JSON.stringify(map));
+      if (preparedMap.attachments) {
+        for (const [id, uri] of Object.entries(preparedMap.attachments)) {
+          if (typeof uri === 'string' && uri.startsWith('mindnote-asset://')) {
+            let cleanFileName = uri.replace(/^mindnote-asset:\/\//, '');
+            cleanFileName = decodeURIComponent(cleanFileName.split('?')[0].split('#')[0]).replace(/^\/+/, '');
+            const assetPath = path.join(ATTACHMENTS_DIR, cleanFileName);
+            if (fs.existsSync(assetPath)) {
+              const ext = path.extname(cleanFileName).replace('.', '') || 'png';
+              const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+              const buffer = fs.readFileSync(assetPath);
+              preparedMap.attachments[id] = `data:${mimeType};base64,${buffer.toString('base64')}`;
+            }
+          }
+        }
+      }
+
+      const safeName = (map.name || 'map').replace(/[\\/:*?"<>|]/g, '_').slice(0, 50);
+      const fileName = `${safeName}_${timestamp}.json`;
+      const filePath = path.join(mindnoteDir, fileName);
+
+      const payload = {
+        version: 1,
+        type: 'mindnote_single_map',
+        exportedAt: Date.now(),
+        source: 'desktop',
+        map: preparedMap,
+      };
+
+      fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
+      return {
+        success: true,
+        fileName,
+        filePath,
+        folder: mindnoteDir,
+        mapName: map.name,
+        isFullVault: false,
+      };
+    }
+
+    return { success: false, error: 'Dữ liệu xuất không hợp lệ.' };
+  } catch (err) {
+    console.error('[Desktop GDrive Export] Lỗi:', err);
+    return { success: false, error: err.message };
+  }
+});
+
+// 10.4 Chọn file nạp trực tiếp từ thư mục Google Drive
+ipcMain.handle('desktop:pick-from-gdrive', async () => {
+  const mindnoteDir = getGoogleDriveMindnoteDir();
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Chọn file Mindnote từ Google Drive',
+    defaultPath: mindnoteDir || undefined,
+    filters: [{ name: 'Mindnote JSON', extensions: ['json'] }],
+    properties: ['openFile'],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  try {
+    const raw = fs.readFileSync(result.filePaths[0], 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed;
+  } catch (err) {
+    dialog.showErrorBox('Lỗi nạp từ Google Drive', `Không thể đọc file: ${err.message}`);
+    return null;
+  }
+});
+
 // Window controls
 ipcMain.handle('desktop:minimize-window', () => mainWindow?.minimize());
 ipcMain.handle('desktop:maximize-window', () => {

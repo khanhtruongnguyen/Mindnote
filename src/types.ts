@@ -108,6 +108,22 @@ export type ImportDataResult =
   | { type: 'single_map'; map: MapData }
   | { type: 'multi_maps'; maps: MapData[] };
 
+export interface GoogleDriveInfo {
+  isAvailable: boolean;
+  gDrivePath: string | null;
+  mindnoteDir: string | null;
+}
+
+export interface GoogleDriveExportResult {
+  success: boolean;
+  fileName?: string;
+  filePath?: string;
+  folder?: string;
+  mapName?: string;
+  isFullVault?: boolean;
+  error?: string;
+}
+
 export interface MindnoteDesktopBridge {
   isDesktop: boolean;
   getVaultInfo: () => Promise<{
@@ -124,6 +140,10 @@ export interface MindnoteDesktopBridge {
   exportBackupDialog: (maps: MapData[]) => Promise<boolean>;
   exportSingleMapDialog: (map: MapData) => Promise<boolean>;
   normalizeImportedMap: (map: MapData) => Promise<MapData>;
+  getGoogleDriveInfo: () => Promise<GoogleDriveInfo>;
+  openGoogleDriveFolder: () => Promise<boolean>;
+  exportToGoogleDrive: (data: { map?: MapData; maps?: MapData[]; isFullVault?: boolean }) => Promise<GoogleDriveExportResult>;
+  pickFromGoogleDrive: () => Promise<unknown>;
   minimizeWindow: () => Promise<void>;
   maximizeWindow: () => Promise<void>;
   closeWindow: () => Promise<void>;

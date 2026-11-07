@@ -22,6 +22,7 @@ import {
   Database,
   FolderOpen,
   FileText,
+  Zap,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -40,8 +41,11 @@ interface HeaderProps {
   hasContext?: boolean;
   onExportBackup: () => void;
   onExportSingleMap: (map: MapData) => void;
+  onExportGoogleDrive?: (map: MapData, isFullVault?: boolean) => void;
   onImportBackup: (file: File) => void;
   onDesktopImport?: () => void;
+  onPickGoogleDrive?: () => void;
+  onOpenGoogleDriveModal?: () => void;
   onOpenGistModal: () => void;
   onOpenSupabaseModal?: () => void;
   onOpenHelpModal: () => void;
@@ -67,8 +71,11 @@ export const Header: React.FC<HeaderProps> = ({
   hasContext = false,
   onExportBackup,
   onExportSingleMap,
+  onExportGoogleDrive,
   onImportBackup,
   onDesktopImport,
+  onPickGoogleDrive,
+  onOpenGoogleDriveModal,
   onOpenGistModal,
   onOpenSupabaseModal,
   onOpenHelpModal,
@@ -417,6 +424,49 @@ export const Header: React.FC<HeaderProps> = ({
                       </div>
                     </div>
                   </button>
+
+                  {/* Option 3: Xuất nhanh sang Google Drive Desktop (Tự động kèm giây) */}
+                  {isDesktop && onExportGoogleDrive && (
+                    <button
+                      onClick={() => {
+                        setExportDropdownOpen(false);
+                        onExportGoogleDrive(activeMap, false);
+                      }}
+                      className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-emerald-600/20 text-zinc-200 transition-colors group cursor-pointer border-t border-zinc-800/60 pt-2"
+                    >
+                      <Zap className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                      <div>
+                        <div className="text-xs font-semibold text-emerald-300 flex items-center gap-1">
+                          <span>⚡ Xuất nhanh vào Google Drive</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950 border border-emerald-500/40 text-emerald-300">1-Click</span>
+                        </div>
+                        <div className="text-[11px] text-zinc-400 leading-tight mt-0.5">
+                          Lưu thẳng vào G:\My Drive\Mindnote (kèm ngày giờ đến từng giây). Drive tự đẩy lên mây!
+                        </div>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* Option 4: Sao lưu cả kho sang Google Drive */}
+                  {isDesktop && onExportGoogleDrive && (
+                    <button
+                      onClick={() => {
+                        setExportDropdownOpen(false);
+                        onExportGoogleDrive(activeMap, true);
+                      }}
+                      className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-emerald-600/20 text-zinc-200 transition-colors group cursor-pointer"
+                    >
+                      <Cloud className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="text-xs font-semibold text-emerald-300">
+                          Sao lưu cả kho sang Google Drive
+                        </div>
+                        <div className="text-[11px] text-zinc-500 leading-tight mt-0.5">
+                          Tạo file sao lưu toàn bộ kho trong thư mục Drive.
+                        </div>
+                      </div>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -436,6 +486,30 @@ export const Header: React.FC<HeaderProps> = ({
               className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
             >
               <Upload className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Web Google Drive Import Button (Chỉ trên bản Web) */}
+          {!isMobile && !isDesktop && onOpenGoogleDriveModal && (
+            <button
+              onClick={onOpenGoogleDriveModal}
+              title="Nhập bản đồ từ Google Drive hoặc dán link chia sẻ"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-950/30 border border-blue-500/40 text-blue-300 hover:text-white hover:border-blue-400 text-xs font-medium transition-colors cursor-pointer"
+            >
+              <Cloud className="w-3.5 h-3.5 text-blue-400" />
+              <span>Google Drive</span>
+            </button>
+          )}
+
+          {/* Desktop Google Drive Button (Mở hoặc Nạp từ Google Drive trên PC) */}
+          {!isMobile && isDesktop && onPickGoogleDrive && (
+            <button
+              onClick={onPickGoogleDrive}
+              title="Chọn file bản đồ nạp nhanh từ thư mục Google Drive (G:\My Drive\Mindnote)"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400 text-xs font-medium transition-colors cursor-pointer shadow-sm"
+            >
+              <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Từ Drive</span>
             </button>
           )}
 
@@ -656,6 +730,32 @@ export const Header: React.FC<HeaderProps> = ({
                   <Layers className="w-4 h-4 text-blue-400" />
                   <span>Sao lưu toàn bộ kho ({maps.length} Map)</span>
                 </button>
+
+                {isDesktop && onExportGoogleDrive && (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onExportGoogleDrive(activeMap, false);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-emerald-300 hover:bg-emerald-950/40 transition-colors"
+                  >
+                    <Zap className="w-4 h-4 text-emerald-400" />
+                    <span>⚡ Xuất sang Google Drive (Tự động)</span>
+                  </button>
+                )}
+
+                {!isDesktop && onOpenGoogleDriveModal && (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onOpenGoogleDriveModal();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-blue-300 hover:bg-blue-950/40 transition-colors"
+                  >
+                    <Cloud className="w-4 h-4 text-blue-400" />
+                    <span>Nạp từ Google Drive</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => {

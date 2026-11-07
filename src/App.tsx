@@ -15,6 +15,7 @@ import { AiSettingsModal } from './components/AiSettingsModal';
 import { ConnectNodesModal } from './components/ConnectNodesModal';
 import { MapContextModal } from './components/MapContextModal';
 import { ImportConfirmModal } from './components/ImportConfirmModal';
+import { GoogleDriveImportModal } from './components/GoogleDriveImportModal';
 import { useDeviceMode } from './hooks/useDeviceMode';
 import {
   syncMapToSupabase,
@@ -46,6 +47,7 @@ export function App() {
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isContextModalOpen, setIsContextModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [isGoogleDriveModalOpen, setIsGoogleDriveModalOpen] = useState(false);
   const [pendingImportResult, setPendingImportResult] = useState<ImportDataResult | null>(null);
 
   // Khởi tạo IndexedDB và nạp dữ liệu bản đồ
@@ -575,6 +577,7 @@ export function App() {
         setIsAiSettingsOpen(false);
         setIsConnectModalOpen(false);
         setIsImportModalOpen(false);
+        setIsGoogleDriveModalOpen(false);
       }
     };
 
@@ -710,6 +713,44 @@ export function App() {
 
   const handleExportSingleMap = (mapToExport: MapData) => {
     StorageService.exportSingleMap(mapToExport);
+  };
+
+  const handleExportGoogleDrive = async (mapToExport: MapData, isFullVault = false) => {
+    if (!window.mindnoteDesktop?.isDesktop) {
+      alert('Tính năng này dành cho bản Desktop đã kết nối Google Drive for Desktop.');
+      return;
+    }
+
+    try {
+      const res = await window.mindnoteDesktop.exportToGoogleDrive({
+        map: mapToExport,
+        maps: maps,
+        isFullVault,
+      });
+
+      if (res.success) {
+        confetti({ particleCount: 35, spread: 60, origin: { y: 0.8 } });
+        alert(`🎉 Đã xuất thành công sang Google Drive!\n📁 File: ${res.fileName}\n📍 Thư mục: ${res.folder}\n\nGoogle Drive đang tự động đồng bộ lên đám mây.`);
+      } else {
+        alert(`Không thể lưu vào Google Drive: ${res.error || 'Lỗi không xác định'}`);
+      }
+    } catch (err: any) {
+      alert(`Lỗi khi xuất sang Google Drive: ${err.message}`);
+    }
+  };
+
+  const handlePickGoogleDrive = async () => {
+    if (!window.mindnoteDesktop?.isDesktop) return;
+    try {
+      const rawData = await window.mindnoteDesktop.pickFromGoogleDrive();
+      if (!rawData) return;
+      const result = StorageService.parseImportData(rawData);
+      setPendingImportResult(result);
+      setIsImportModalOpen(true);
+    } catch (e: unknown) {
+      const err = e as Error;
+      alert(`Lỗi khi đọc file từ Google Drive: ${err.message}`);
+    }
   };
 
   const handleImportBackup = async (file: File) => {
@@ -886,8 +927,11 @@ export function App() {
         onAddNode={handleAddNodeCenter}
         onExportBackup={handleExportBackup}
         onExportSingleMap={handleExportSingleMap}
+        onExportGoogleDrive={handleExportGoogleDrive}
         onImportBackup={handleImportBackup}
         onDesktopImport={handleDesktopImport}
+        onPickGoogleDrive={handlePickGoogleDrive}
+        onOpenGoogleDriveModal={() => setIsGoogleDriveModalOpen(true)}
         onOpenGistModal={() => setIsGistModalOpen(true)}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         onOpenHelpModal={() => setIsHelpModalOpen(true)}
@@ -1055,6 +1099,20 @@ export function App() {
         onAddNewMap={handleConfirmAddNewMap}
         onMergeVault={handleConfirmMergeVault}
         onReplaceVault={handleConfirmReplaceVault}
+      />
+
+      {/* Modal Nạp Từ Google Drive (Web & Mobile) */}
+      <GoogleDriveImportModal
+        isOpen={isGoogleDriveModalOpen}
+        onClose={() => setIsGoogleDriveModalOpen(false)}
+        onSelectFromDevice={() => {
+          const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+          fileInput?.click();
+        }}
+        onDataLoaded={(result) => {
+          setPendingImportResult(result);
+          setIsImportModalOpen(true);
+        }}
       />
     </div>
   );
