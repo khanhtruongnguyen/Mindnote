@@ -205,8 +205,14 @@ export function App() {
     const unsubscribe = subscribeToRemoteMaps(
       (remoteMap) => {
         setMaps((prev) => {
-          const exists = prev.some((m) => m.id === remoteMap.id);
-          if (exists) {
+          const current = prev.find((m) => m.id === remoteMap.id);
+          if (current) {
+            // So sánh timestamp: Nếu bản đồ trên máy mới hơn (do người dùng vừa sửa lúc rớt mạng), BẢO TOÀN DỮ LIỆU TRÊN MÁY!
+            if ((current.updatedAt || 0) > (remoteMap.updatedAt || 0)) {
+              console.log('[Supabase Realtime] Bản đồ trên điện thoại mới hơn đám mây, bảo toàn và đẩy ngược lên mây:', current.name);
+              syncMapToSupabase(current);
+              return prev;
+            }
             return prev.map((m) => (m.id === remoteMap.id ? remoteMap : m));
           } else {
             return [remoteMap, ...prev];
