@@ -13,6 +13,7 @@ import { AiChatPanel } from './components/AiChatPanel';
 import { AiSettingsModal } from './components/AiSettingsModal';
 import { ConnectNodesModal } from './components/ConnectNodesModal';
 import { useDeviceMode } from './hooks/useDeviceMode';
+import confetti from 'canvas-confetti';
 
 export function App() {
   const { isMobile, preference, changePreference } = useDeviceMode();
@@ -122,6 +123,70 @@ export function App() {
       setFocusNodeId(newNodeId);
     },
     [activeMap.nodes, handleUpdateCurrentMap]
+  );
+
+  // Add AI-generated branch nodes connected to a parent node
+  const handleAddBranchNodes = useCallback(
+    (parentNode: CustomNode, branches: Array<{ label: string; content: string }>) => {
+      if (!branches || branches.length === 0) return;
+
+      const colors: NodeColor[] = ['cyan', 'emerald', 'amber', 'rose', 'indigo', 'purple'];
+      const newNodes: CustomNode[] = [];
+      const newEdges: Edge[] = [];
+
+      branches.forEach((b, idx) => {
+        const newNodeId = `node-branch-${Date.now()}-${idx}`;
+        const posX = parentNode.position.x + 300;
+        const posY = parentNode.position.y + (idx - (branches.length - 1) / 2) * 125;
+        const color = colors[(idx + 2) % colors.length];
+
+        newNodes.push({
+          id: newNodeId,
+          type: 'mindmap',
+          position: { x: posX, y: posY },
+          data: {
+            label: b.label,
+            color,
+            shape: 'pill',
+            content: b.content,
+          },
+        });
+
+        newEdges.push({
+          id: `e-${parentNode.id}-${newNodeId}-${Date.now()}`,
+          source: parentNode.id,
+          target: newNodeId,
+          type: 'custom',
+          animated: true,
+          style: {
+            stroke: COLOR_SCHEMES[parentNode.data.color || 'purple']?.accent || '#a855f7',
+            strokeWidth: 2,
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: COLOR_SCHEMES[parentNode.data.color || 'purple']?.accent || '#a855f7',
+            width: 16,
+            height: 16,
+          },
+        });
+      });
+
+      handleUpdateCurrentMap({
+        nodes: [...activeMap.nodes, ...newNodes],
+        edges: [...activeMap.edges, ...newEdges],
+      });
+
+      try {
+        confetti({
+          particleCount: 45,
+          spread: 60,
+          origin: { y: 0.6 },
+        });
+      } catch {
+        // ignore
+      }
+    },
+    [activeMap.nodes, activeMap.edges, handleUpdateCurrentMap]
   );
 
   // Add connection edge between 2 nodes
@@ -393,6 +458,9 @@ export function App() {
         selectedNode={selectedNode}
         allNodes={activeMap.nodes}
         edges={activeMap.edges}
+        mapName={activeMap.name}
+        settings={settings}
+        onAddBranchNodes={handleAddBranchNodes}
         onAddEdge={handleAddEdge}
         onDeleteEdge={handleDeleteEdge}
         onSelectNodeById={handleFocusNode}

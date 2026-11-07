@@ -209,4 +209,187 @@ ${nodesInfo}
       reasoning: accumulatedReasoning,
     };
   },
+
+  /**
+   * AI Viết lại / Trau chuốt / Mở rộng nội dung cho 1 ô ghi chú
+   */
+  async refineNoteContent({
+    baseUrl,
+    apiKey,
+    model,
+    nodeLabel,
+    currentContent,
+    mode,
+    customInstruction,
+  }: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    nodeLabel: string;
+    currentContent: string;
+    mode: 'expand' | 'summarize' | 'formula' | 'polish' | 'custom';
+    customInstruction?: string;
+  }): Promise<string> {
+    const cleanUrl = cleanBaseUrl(baseUrl);
+
+    let instruction = '';
+    switch (mode) {
+      case 'expand':
+        instruction =
+          'Hãy khai triển chi tiết và viết sâu hơn các ý tưởng cho ô ghi chú này. Bổ sung các giải thích rõ ràng, ví dụ cụ thể hoặc các luận điểm quan trọng.';
+        break;
+      case 'summarize':
+        instruction =
+          'Hãy tóm tắt toàn bộ nội dung của ô ghi chú này thành các gạch đầu dòng súc tích, ngắn gọn, giữ lại các từ khóa và công thức cốt lõi.';
+        break;
+      case 'formula':
+        instruction =
+          'Hãy bổ sung và chuẩn hóa các công thức toán học/khoa học liên quan bằng định dạng KaTeX ($...$ hoặc $$...$$) kèm chú thích rõ ràng từng biến số.';
+        break;
+      case 'polish':
+        instruction =
+          'Hãy sửa lỗi chính tả, cải thiện ngữ pháp, làm cho câu từ mượt mà, chuyên nghiệp và chuẩn hóa cấu trúc Markdown (tiêu đề, in đậm, callout box).';
+        break;
+      case 'custom':
+        instruction = customInstruction || 'Hãy tối ưu và cải thiện nội dung ô ghi chú này.';
+        break;
+    }
+
+    const systemPrompt = `Bạn là trợ lý AI chuyên nghiệp về biên soạn nội dung và tài liệu học tập chuẩn Obsidian Markdown.
+QUY TẮC BẮT BUỘC:
+1. 100% tiếng Việt tự nhiên, không tiếng Trung, không xuất thẻ hệ thống hay [ATLAS-OK].
+2. Sử dụng Markdown đẹp mắt (heading, bold, list, blockquote).
+3. Sử dụng KaTeX ($...$ và $$...$$) cho công thức toán học nếu có.
+4. CHỈ TRẢ VỀ nội dung Markdown của ô ghi chú. KHÔNG kèm câu chào đầu hay lời giải thích ngoài lề.`;
+
+    const userPrompt = `TIÊU ĐỀ Ô: "${nodeLabel}"
+
+NỘI DUNG HIỆN TẠI:
+${currentContent || '(Chưa có nội dung, hãy viết mới)'}
+
+YÊU CẦU:
+${instruction}`;
+
+    const res = await fetch(`${cleanUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        model: model.trim(),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        stream: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || err.message || `Lỗi AI (${res.status})`);
+    }
+
+    const data = await res.json();
+    const rawContent = data.choices?.[0]?.message?.content || '';
+    return cleanAiOutput(rawContent).trim();
+  },
+
+  /**
+   * AI Gợi ý và tự động sinh các nhánh con mới cho 1 ô cha
+   */
+  async generateChildBranches({
+    baseUrl,
+    apiKey,
+    model,
+    parentLabel,
+    parentContent,
+    mapName,
+    existingNodeLabels,
+    count = 3,
+  }: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    parentLabel: string;
+    parentContent: string;
+    mapName: string;
+    existingNodeLabels?: string[];
+    count?: number;
+  }): Promise<Array<{ label: string; content: string }>> {
+    const cleanUrl = cleanBaseUrl(baseUrl);
+
+    const systemPrompt = `Bạn là chuyên gia tư duy logic và cấu trúc sơ đồ tư duy (Mind Map).
+Nhiệm vụ của bạn là phân tích ô ghi chú cha và đề xuất chính xác ${count} nhánh con logic tiếp theo.
+QUY TẮC:
+1. 100% tiếng Việt, không tiếng Trung, không [ATLAS-OK].
+2. BẮT BUỘC trả về duy nhất một mảng JSON hợp lệ dạng:
+[
+  {
+    "label": "Tên ngắn của nhánh con (dưới 30 ký tự)",
+    "content": "Nội dung tóm tắt giải thích chi tiết hoặc công thức KaTeX của nhánh con này"
+  }
+]
+3. KHÔNG viết thêm bất kỳ câu mở đầu, kết thúc hay giải thích nào bên ngoài khối JSON.`;
+
+    const userPrompt = `BẢN ĐỒ: "${mapName}"
+Ô CHA: "${parentLabel}"
+NỘI DUNG Ô CHA:
+${parentContent || '(Không có)'}
+
+CÁC Ô ĐÃ CÓ TRONG BẢN ĐỒ:
+${existingNodeLabels?.join(', ') || '(Chưa có)'}
+
+Hãy sinh đúng ${count} nhánh con mới logic nhất, tránh trùng lặp với các ô đã có.`;
+
+    const res = await fetch(`${cleanUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        model: model.trim(),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        stream: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || err.message || `Lỗi AI (${res.status})`);
+    }
+
+    const data = await res.json();
+    let text = data.choices?.[0]?.message?.content || '';
+    text = cleanAiOutput(text);
+
+    // Extract JSON array
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed)) {
+          return parsed.map((item) => ({
+            label: String(item.label || 'Nhánh mới').trim(),
+            content: String(item.content || '').trim(),
+          }));
+        }
+      } catch {
+        // Fallback
+      }
+    }
+
+    // Fallback parsing if JSON wasn't returned cleanly
+    return [
+      {
+        label: `${parentLabel} - Nhánh 1`,
+        content: `Nội dung mở rộng cho ${parentLabel}`,
+      },
+    ];
+  },
 };

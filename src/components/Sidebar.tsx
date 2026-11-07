@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import type { Edge } from '@xyflow/react';
-import type { CustomNode, NodeColor, NodeShape } from '../types';
+import type { CustomNode, NodeColor, NodeShape, AppSettings } from '../types';
 import { COLOR_SCHEMES } from '../constants/theme';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { SyntaxHandbookModal } from './SyntaxHandbookModal';
+import { AiService } from '../services/aiService';
 import {
   Trash2,
   Eye,
@@ -27,12 +28,18 @@ import {
   ArrowLeft,
   Network,
   Plus,
+  Wand2,
+  Loader2,
+  Check,
 } from 'lucide-react';
 
 interface SidebarProps {
   selectedNode: CustomNode | null;
   allNodes?: CustomNode[];
   edges?: Edge[];
+  settings?: AppSettings;
+  mapName?: string;
+  onAddBranchNodes?: (parentNode: CustomNode, branches: Array<{ label: string; content: string }>) => void;
   onAddEdge?: (sourceId: string, targetId: string) => void;
   onDeleteEdge?: (edgeId: string) => void;
   onSelectNodeById?: (nodeId: string) => void;
@@ -50,6 +57,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   selectedNode,
   allNodes = [],
   edges = [],
+  settings,
+  mapName,
+  onAddBranchNodes,
   onAddEdge,
   onDeleteEdge,
   onSelectNodeById,
@@ -68,6 +78,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [targetConnectId, setTargetConnectId] = useState<string>('');
   const [linkTitle, setLinkTitle] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
+
+  // AI Note Writing Assistant states
+  const [showAiWriter, setShowAiWriter] = useState(false);
+  const [aiWriterLoading, setAiWriterLoading] = useState(false);
+  const [aiWriterResult, setAiWriterResult] = useState<string | null>(null);
+  const [aiCustomInstruction, setAiCustomInstruction] = useState('');
+  const [aiWriterError, setAiWriterError] = useState<string | null>(null);
+
+  // AI Branch Generator states
+  const [isGeneratingBranches, setIsGeneratingBranches] = useState(false);
+  const [branchSuccessMsg, setBranchSuccessMsg] = useState<string | null>(null);
 
   // Mobile Drag Gesture States
   const [dragOffsetY, setDragOffsetY] = useState(0);
@@ -159,6 +180,86 @@ export const Sidebar: React.FC<SidebarProps> = ({
       reader.readAsDataURL(file);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // AI Note Writing Handlers
+  const handleRunAiWriter = async (mode: 'expand' | 'summarize' | 'formula' | 'polish' | 'custom') => {
+    if (!selectedNode) return;
+    setAiWriterLoading(true);
+    setAiWriterError(null);
+    setAiWriterResult(null);
+
+    try {
+      const baseUrl = settings?.aiBaseUrl || 'https://api.xah.io/v1';
+      const apiKey = settings?.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
+      const model = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
+
+      const result = await AiService.refineNoteContent({
+        baseUrl,
+        apiKey,
+        model,
+        nodeLabel: selectedNode.data.label || 'Ghi chú',
+        currentContent: selectedNode.data.content || '',
+        mode,
+        customInstruction: aiCustomInstruction.trim(),
+      });
+
+      setAiWriterResult(result);
+    } catch (err: unknown) {
+      const e = err as Error;
+      setAiWriterError(e.message || 'Lỗi khi yêu cầu AI viết');
+    } finally {
+      setAiWriterLoading(false);
+    }
+  };
+
+  const handleApplyAiContent = (type: 'replace' | 'append') => {
+    if (!selectedNode || !aiWriterResult) return;
+    if (type === 'replace') {
+      onUpdateNode(selectedNode.id, { content: aiWriterResult });
+    } else {
+      const existing = selectedNode.data.content ? selectedNode.data.content.trimEnd() + '\n\n' : '';
+      onUpdateNode(selectedNode.id, { content: existing + aiWriterResult });
+    }
+    setAiWriterResult(null);
+    setShowAiWriter(false);
+  };
+
+  // AI Branch Expansion Handler
+  const handleGenerateBranches = async () => {
+    if (!selectedNode || !onAddBranchNodes) return;
+    setIsGeneratingBranches(true);
+    setBranchSuccessMsg(null);
+
+    try {
+      const baseUrl = settings?.aiBaseUrl || 'https://api.xah.io/v1';
+      const apiKey = settings?.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
+      const model = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
+
+      const existingLabels = allNodes.map((n) => n.data.label).filter(Boolean);
+
+      const branches = await AiService.generateChildBranches({
+        baseUrl,
+        apiKey,
+        model,
+        parentLabel: selectedNode.data.label || 'Ghi chú',
+        parentContent: selectedNode.data.content || '',
+        mapName: mapName || 'Bản đồ tư duy',
+        existingNodeLabels: existingLabels,
+        count: 3,
+      });
+
+      if (branches && branches.length > 0) {
+        onAddBranchNodes(selectedNode, branches);
+        setBranchSuccessMsg(`Đã tạo ${branches.length} nhánh con mới!`);
+        setTimeout(() => setBranchSuccessMsg(null), 3500);
+      }
+    } catch (err: unknown) {
+      const e = err as Error;
+      alert(`Lỗi sinh nhánh: ${e.message}`);
+    } finally {
+      setIsGeneratingBranches(false);
+    }
   };
 
   const handleInsertLink = (e: React.FormEvent) => {
@@ -301,6 +402,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* AI Branch Generator Button */}
+            {onAddBranchNodes && (
+              <button
+                type="button"
+                onClick={handleGenerateBranches}
+                disabled={isGeneratingBranches}
+                title="AI tự động phân tích và tạo 3 nhánh con mới cho ô này"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-purple-600/30 to-indigo-600/30 hover:from-purple-600/50 hover:to-indigo-600/50 text-purple-200 hover:text-white border border-purple-500/40 text-xs font-semibold shadow-sm transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50"
+              >
+                {isGeneratingBranches ? (
+                  <Loader2 className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                ) : (
+                  <GitBranch className="w-3.5 h-3.5 text-purple-400" />
+                )}
+                <span>{isGeneratingBranches ? 'Đang sinh...' : '+ Nhánh con AI'}</span>
+              </button>
+            )}
+
             {/* Syntax Handbook Button */}
             <button
               onClick={() => setShowHandbookModal(true)}
@@ -332,6 +451,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Success toast for AI branch generator */}
+        {branchSuccessMsg && (
+          <div className="mx-4 mt-2 p-2 rounded-xl bg-emerald-950/80 border border-emerald-500/50 text-emerald-200 text-xs flex items-center justify-between shadow-lg animate-in fade-in">
+            <div className="flex items-center gap-1.5 font-medium">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{branchSuccessMsg}</span>
+            </div>
+            <button
+              onClick={() => setBranchSuccessMsg(null)}
+              className="text-emerald-400 hover:text-white p-0.5 text-xs"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Title & Metadata */}
         <div className="px-4 sm:px-5 py-3 space-y-3 border-b border-[#272733] bg-[#141419]/50">
@@ -657,6 +792,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             >
               <ImageIcon className="w-3.5 h-3.5" />
             </button>
+
+            {/* AI Writer Assistant Button */}
+            <button
+              type="button"
+              onClick={() => setShowAiWriter(!showAiWriter)}
+              title="Trợ lý AI viết & trau chuốt nội dung note"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold border transition-all cursor-pointer ${
+                showAiWriter
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white border-purple-400 shadow-md shadow-purple-600/30'
+                  : 'bg-purple-500/15 text-purple-300 hover:bg-purple-500/25 border-purple-500/30'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-300 animate-pulse" />
+              <span>AI Viết</span>
+            </button>
           </div>
 
           {/* View Mode Switcher */}
@@ -692,6 +842,143 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </div>
         </div>
+
+        {/* AI Writer Assistant Panel */}
+        {showAiWriter && (
+          <div className="p-3 bg-[#14141e] border-b border-[#2d2d3e] space-y-2.5 animate-in fade-in duration-150 shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                <Wand2 className="w-3.5 h-3.5 text-purple-400" />
+                <span>Trợ lý AI viết & trau chuốt nội dung</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAiWriter(false);
+                  setAiWriterResult(null);
+                  setAiWriterError(null);
+                }}
+                className="text-zinc-500 hover:text-white text-xs cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Preset Action Chips */}
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                disabled={aiWriterLoading}
+                onClick={() => handleRunAiWriter('expand')}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1f1f2e] hover:bg-[#28283d] text-zinc-200 border border-[#303046] hover:border-purple-500/50 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <span>🪄 Khai triển ý</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={aiWriterLoading}
+                onClick={() => handleRunAiWriter('summarize')}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1f1f2e] hover:bg-[#28283d] text-zinc-200 border border-[#303046] hover:border-purple-500/50 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <span>📋 Tóm tắt gạch đầu dòng</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={aiWriterLoading}
+                onClick={() => handleRunAiWriter('formula')}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1f1f2e] hover:bg-[#28283d] text-zinc-200 border border-[#303046] hover:border-purple-500/50 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <span>📐 Thêm công thức KaTeX</span>
+              </button>
+
+              <button
+                type="button"
+                disabled={aiWriterLoading}
+                onClick={() => handleRunAiWriter('polish')}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1f1f2e] hover:bg-[#28283d] text-zinc-200 border border-[#303046] hover:border-purple-500/50 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <span>✍️ Sửa lỗi & trau chuốt</span>
+              </button>
+            </div>
+
+            {/* Custom Instruction Input */}
+            <div className="flex items-center gap-1.5 pt-0.5">
+              <input
+                type="text"
+                value={aiCustomInstruction}
+                onChange={(e) => setAiCustomInstruction(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleRunAiWriter('custom');
+                }}
+                placeholder="Hoặc gõ yêu cầu riêng (vd: Viết ví dụ thực tế, phân tích ưu nhược điểm...)"
+                className="flex-1 bg-[#181824] border border-[#2e2e40] focus:border-purple-500 rounded-lg px-2.5 py-1.5 text-xs text-zinc-200 outline-none"
+              />
+              <button
+                type="button"
+                disabled={aiWriterLoading || !aiCustomInstruction.trim()}
+                onClick={() => handleRunAiWriter('custom')}
+                className="px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-xs font-semibold transition-colors cursor-pointer disabled:cursor-not-allowed"
+              >
+                Viết
+              </button>
+            </div>
+
+            {/* Loading Indicator */}
+            {aiWriterLoading && (
+              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-purple-950/30 border border-purple-500/30 text-purple-300 text-xs animate-pulse">
+                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                <span>AI đang suy nghĩ và biên soạn nội dung...</span>
+              </div>
+            )}
+
+            {/* Error message */}
+            {aiWriterError && (
+              <div className="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs">
+                ⚠️ {aiWriterError}
+              </div>
+            )}
+
+            {/* Result Preview Box with Apply Actions */}
+            {aiWriterResult && !aiWriterLoading && (
+              <div className="space-y-2 p-2.5 rounded-xl bg-[#191926] border border-purple-500/40 shadow-lg">
+                <div className="flex items-center justify-between text-[11px] text-zinc-400 border-b border-zinc-800 pb-1.5">
+                  <span className="font-semibold text-purple-300">Bản xem trước do AI soạn:</span>
+                  <span className="text-[10px] text-zinc-500">{aiWriterResult.length} ký tự</span>
+                </div>
+
+                <div className="max-h-44 overflow-y-auto p-2 bg-[#101016] rounded-lg text-xs font-mono text-zinc-300 whitespace-pre-wrap leading-relaxed">
+                  {aiWriterResult}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setAiWriterResult(null)}
+                    className="px-2.5 py-1 rounded-lg text-zinc-400 hover:text-white text-xs cursor-pointer"
+                  >
+                    Bỏ qua
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyAiContent('append')}
+                    className="px-3 py-1 rounded-lg bg-[#252538] hover:bg-[#303046] text-purple-200 border border-purple-500/30 text-xs font-medium transition-colors cursor-pointer"
+                  >
+                    Chèn vào cuối
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyAiContent('replace')}
+                    className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md shadow-purple-600/30 transition-all hover:scale-[1.02] cursor-pointer"
+                  >
+                    Thay thế nội dung
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Editor & Preview Area */}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-[#121216]">
