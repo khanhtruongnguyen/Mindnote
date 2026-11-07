@@ -8,7 +8,7 @@ git status --porcelain > "%temp%\git_status.tmp"
 for %%R in ("%temp%\git_status.tmp") do if %%~zR==0 (
     echo [THONG BAO] Khong co file nao thay doi.
     del "%temp%\git_status.tmp"
-    timeout /t 2 >nul
+    ping 127.0.0.1 -n 3 >nul
     exit /b 0
 )
 del "%temp%\git_status.tmp"
@@ -27,4 +27,4 @@ if %errorlevel% equ 0 (
     echo [LOI] Co loi xay ra khi day code.
     pause
 )
-timeout /t 3 >nul
+ping 127.0.0.1 -n 3 >nul

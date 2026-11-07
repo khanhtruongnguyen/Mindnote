@@ -22,5 +22,5 @@ for %%R in ("%temp%\git_status.tmp") do if not %%~zR==0 (
     echo.
 )
 del "%temp%\git_status.tmp" 2>nul
-timeout /t 30 >nul
+ping 127.0.0.1 -n 31 >nul
 goto loop

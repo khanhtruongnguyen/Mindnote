@@ -62,4 +62,4 @@ if %errorlevel% equ 0 (
 
 echo.
 echo Cua so se tu dong dong sau 5 giay...
-timeout /t 5 >nul
+ping 127.0.0.1 -n 6 >nul
