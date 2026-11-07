@@ -3,7 +3,7 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { MindMapNodeData } from '../../types';
 import { COLOR_SCHEMES } from '../../constants/theme';
 import { MarkdownRenderer } from '../MarkdownRenderer';
-import { FileText, Sigma, Image as ImageIcon } from 'lucide-react';
+import { FileText, Sigma, Image as ImageIcon, GripHorizontal } from 'lucide-react';
 
 export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
   const nodeData = data as MindMapNodeData;
@@ -76,7 +76,7 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
       {/* Circle / Dot shape */}
       {shape === 'circle' && (
         <div
-          className={`flex items-center justify-center w-10 h-10 rounded-full border backdrop-blur-md cursor-pointer transition-colors duration-150 ${
+          className={`flex items-center justify-center w-10 h-10 rounded-full border backdrop-blur-md cursor-grab active:cursor-grabbing touch-none select-none transition-colors duration-150 ${
             colorScheme.bg
           } ${colorScheme.border} ${
             selected
@@ -94,7 +94,7 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
       {/* Pill Capsule shape (Obsidian favorite) */}
       {shape === 'pill' && (
         <div
-          className={`flex items-center gap-2.5 px-3.5 py-2 rounded-full border backdrop-blur-md cursor-pointer transition-colors duration-150 select-none ${
+          className={`flex items-center gap-2.5 px-3.5 py-2 rounded-full border backdrop-blur-md cursor-grab active:cursor-grabbing touch-none transition-colors duration-150 select-none ${
             colorScheme.bg
           } ${colorScheme.border} ${
             selected
@@ -120,7 +120,7 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
       {/* Card shape */}
       {shape === 'card' && (
         <div
-          className={`flex flex-col gap-1.5 p-3 rounded-xl border bg-[#161622] cursor-pointer transition-colors duration-150 min-w-[160px] max-w-[220px] select-none ${
+          className={`flex flex-col gap-1.5 p-3 rounded-xl border bg-[#161622] cursor-grab active:cursor-grabbing touch-none transition-colors duration-150 min-w-[160px] max-w-[220px] select-none ${
             colorScheme.border
           } ${
             selected
@@ -142,10 +142,10 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
         </div>
       )}
 
-      {/* Full Note directly on Canvas mode (Hiển thị toàn bộ ghi chú trên Map - Tối ưu 60FPS) */}
+      {/* Full Note directly on Canvas mode (Hiển thị toàn bộ ghi chú trên Map - Tối ưu kéo trên điện thoại & 60FPS) */}
       {shape === 'full' && (
         <div
-          className={`flex flex-col rounded-2xl border bg-[#151520] cursor-pointer transition-colors duration-150 select-none w-[320px] sm:w-[420px] max-h-[480px] shadow-2xl shadow-black/80 ${
+          className={`flex flex-col rounded-2xl border bg-[#151520] transition-colors duration-150 w-[320px] sm:w-[420px] max-h-[480px] shadow-2xl shadow-black/80 ${
             colorScheme.border
           } ${
             selected
@@ -153,9 +153,10 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
               : 'hover:border-zinc-500'
           }`}
         >
-          {/* Header of Full Note */}
-          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-zinc-800/80 bg-[#12121a] rounded-t-2xl shrink-0">
+          {/* Header of Full Note - Vùng kéo thả chuyên dụng (Drag Handle) */}
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-zinc-800/80 bg-[#12121a] rounded-t-2xl shrink-0 touch-none cursor-grab active:cursor-grabbing select-none hover:bg-[#161622] transition-colors">
             <div className="flex items-center gap-2 min-w-0">
+              <GripHorizontal className="w-4 h-4 text-zinc-500 hover:text-purple-300 shrink-0" />
               <span className={`w-2.5 h-2.5 rounded-full ${colorScheme.dot} shrink-0 shadow-sm`} />
               <span className="text-xs font-bold text-zinc-100 truncate">
                 {nodeData.label || 'Chưa đặt tên'}
@@ -172,7 +173,7 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
 
           {/* Body with Markdown & KaTeX */}
           <div
-            className="nowheel nopan nodrag p-3.5 overflow-y-auto max-h-[400px] text-xs space-y-2 select-text cursor-auto"
+            className="nowheel nopan nodrag p-3.5 overflow-y-auto max-h-[380px] text-xs space-y-2 select-text cursor-auto touch-pan-y"
             onWheel={(e) => e.stopPropagation()}
           >
             {nodeData.content && nodeData.content.trim() ? (
@@ -187,6 +188,12 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
                 Chưa có nội dung. Bấm vào ô này để bắt đầu viết chi tiết.
               </div>
             )}
+          </div>
+
+          {/* Bottom Drag Handle Bar (Hỗ trợ ngón tay cái kéo trên điện thoại cực mượt) */}
+          <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 bg-[#12121a] border-t border-zinc-800/80 rounded-b-2xl text-[10px] text-zinc-500 font-medium touch-none cursor-grab active:cursor-grabbing select-none hover:text-purple-300 hover:bg-[#161622] transition-colors shrink-0">
+            <GripHorizontal className="w-3.5 h-3.5" />
+            <span>Kéo di chuyển ô</span>
           </div>
         </div>
       )}

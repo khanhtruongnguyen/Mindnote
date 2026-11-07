@@ -47,11 +47,36 @@ export interface AppSettings {
   saveChatHistory?: boolean;
 }
 
+export interface AgentActionNode {
+  id?: string;
+  label: string;
+  content: string;
+  color?: NodeColor;
+  shape?: NodeShape;
+  position?: { x: number; y: number };
+}
+
+export interface AgentActionEdge {
+  id?: string;
+  source: string;
+  target: string;
+  label?: string;
+}
+
+export interface AgentAction {
+  type: 'create_map' | 'modify_map';
+  summary?: string;
+  nodes: AgentActionNode[];
+  edges?: AgentActionEdge[];
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   reasoningContent?: string;
+  agentAction?: AgentAction;
+  isApplied?: boolean;
   createdAt: number;
 }
 

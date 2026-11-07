@@ -289,11 +289,11 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* AI Assistant Button (Desktop) */}
+          {/* AI Assistant & Agent Button (Desktop) */}
           {!isMobile && (
             <button
               onClick={onToggleAi}
-              title="Mở Trợ lý Mind Map AI"
+              title="Mở Trợ lý Mind Map AI & AI Agent tự động xây dựng sơ đồ"
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold shadow-md transition-all hover:scale-[1.02] cursor-pointer ${
                 isAiOpen
                   ? 'bg-gradient-to-r from-purple-600 to-indigo-600 border-purple-400 text-white shadow-purple-600/35 ring-1 ring-purple-400/50'
@@ -301,7 +301,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Sparkles className="w-3.5 h-3.5 text-purple-300 animate-pulse" />
-              <span>Hỏi AI</span>
+              <span>Hỏi & Agent AI</span>
             </button>
           )}
 

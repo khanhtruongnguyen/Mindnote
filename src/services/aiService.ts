@@ -1,4 +1,4 @@
-import type { MapData } from '../types';
+import type { MapData, AgentAction } from '../types';
 
 export interface StreamChatOptions {
   baseUrl: string;
@@ -118,6 +118,98 @@ ${nodesInfo}
    Nhờ đó, người dùng có thể bấm vào liên kết và màn hình sơ đồ sẽ tự động chuyển đến đúng ô đó.
 4. CÔNG THỨC TOÁN HỌC: Nếu giải thích toán học hoặc khoa học, hãy sử dụng KaTeX chuẩn ($...$ cho inline và $$...$$ cho display block).
 5. TƯ DUY PHẢN BIỆN: Nếu người dùng hỏi xin ý kiến về sơ đồ, hãy chỉ ra các nhánh còn thiếu, các điểm mâu thuẫn hoặc gợi ý mở rộng thêm các ý tưởng con logic.`;
+  },
+
+  /**
+   * Tạo system prompt cho chế độ AI Agent (Tự động xây dựng, mở rộng và chỉnh sửa Mind Map)
+   */
+  buildAgentSystemPrompt(mapData: MapData): string {
+    const nodesSummary = mapData.nodes.length > 0
+      ? mapData.nodes.map((n, idx) => `- #${idx + 1} ID: "${n.id}", Tiêu đề: "${n.data.label || 'Chưa đặt tên'}", Dạng: ${n.data.shape || 'pill'}, Màu: ${n.data.color || 'purple'}`).join('\n')
+      : '(Bản đồ hiện đang trống, chưa có ô ghi chú nào)';
+
+    const edgesSummary = mapData.edges.length > 0
+      ? mapData.edges.map(e => {
+          const src = mapData.nodes.find(n => n.id === e.source)?.data.label || e.source;
+          const tgt = mapData.nodes.find(n => n.id === e.target)?.data.label || e.target;
+          return `- "${src}" ➔ "${tgt}" (id: ${e.id})`;
+        }).join('\n')
+      : '(Chưa có liên kết nối nào)';
+
+    const contextSection = mapData.context && mapData.context.trim()
+      ? `\n=== ĐỀ CƯƠNG / NGỮ CẢNH SỔ TAY CỦA BẢN ĐỒ ===\n${mapData.context.trim()}\n(LƯU Ý CỰC KỲ QUAN TRỌNG: Đây là đề cương, bài giảng hoặc tài liệu môn học do người dùng cung cấp. Bạn BẮT BUỘC phải đọc kỹ để phân tích và trích xuất cấu trúc kiến thức đầy đủ, khoa học nhất cho sơ đồ!)\n`
+      : '\n(Bản đồ hiện chưa có đề cương trong ngữ cảnh. Bạn hãy xây dựng sơ đồ dựa trên yêu cầu trực tiếp của người dùng.)\n';
+
+    return `Bạn là NexusNotes AI Agent — Kỹ sư & Kiến trúc sư Sơ đồ tư duy Tự động (Autonomous Mind Map Architect & Builder).
+Nhiệm vụ của bạn là: Lắng nghe mệnh lệnh người dùng, phân tích đề cương/ngữ cảnh và TRỰC TIẾP XÂY DỰNG, THÊM BỚT HOẶC TỔ CHỨC LẠI BẢN ĐỒ CHO NGƯỜI DÙNG.
+
+Tên bản đồ hiện tại: "${mapData.name}"
+${contextSection}
+=== CẤU TRÚC BẢN ĐỒ HIỆN TẠI ===
+* Danh sách các ô ghi chú (${mapData.nodes.length}):
+${nodesSummary}
+
+* Các đường nối hiện có (${mapData.edges.length}):
+${edgesSummary}
+
+=== QUY TẮC BẮT BUỘC KHI LÀM AI AGENT ===
+1. NGÔN NGỮ: BẮT BUỘC 100% TIẾNG VIỆT tự nhiên, chu đáo, giải thích rõ cấu trúc bạn thiết kế. Tuyệt đối không dùng tiếng Trung. Không xuất hiện [ATLAS-OK] hay metadata ở cuối.
+2. CHẤT LƯỢNG NỘI DUNG TỪNG Ô:
+   - "label": Ngắn gọn, súc tích (dưới 40 ký tự), thể hiện rõ chủ đề/khái niệm.
+   - "content": Nội dung Markdown phong phú, bao gồm giải thích định nghĩa, công thức KaTeX ($...$ và $$...$$), bullet points, và khung ghi chú (> 📌 Điểm mấu chốt). Không viết nội dung sơ sài!
+   - "color": 'purple' | 'blue' | 'emerald' | 'amber' | 'rose' | 'cyan' (chọn màu đồng bộ theo từng nhánh hoặc chủ đề).
+   - "shape": 'card' (thẻ thông tin đẹp) hoặc 'full' (ô chi tiết toàn bộ công thức) hoặc 'pill' (thẻ nhãn ngắn).
+3. ĐƯỜNG NỐI (EDGES): Xác định đường nối logic giữa các ô:
+   - Từ ô chủ đề chính (source) trỏ đến các ô nhánh con (target).
+   - Các đường liên kết chéo giữa các kiến thức có mối tương quan.
+4. ĐỊNH DẠNG XUẤT LỆNH BẮT BUỘC CHO HỆ THỐNG THỰC THI:
+   Ở cuối câu trả lời, bạn BẮT BUỘC phải xuất ra một khối JSON code block với cú pháp:
+\`\`\`json:agent-action
+{
+  "type": "create_map" | "modify_map",
+  "summary": "Tóm tắt ngắn gọn những gì bạn đã tạo/sửa (vd: Đã tạo 5 chủ đề chính và 8 liên kết từ đề cương Giải Tích 1)",
+  "nodes": [
+    {
+      "id": "node-1",
+      "label": "Tên ô",
+      "content": "Nội dung Markdown chi tiết...",
+      "color": "purple",
+      "shape": "card"
+    }
+  ],
+  "edges": [
+    {
+      "source": "node-1",
+      "target": "node-2"
+    }
+  ]
+}
+\`\`\`
+- Nếu người dùng yêu cầu: "tạo map từ đề cương", "xây lại bản đồ", hoặc bản đồ đang trống: Đặt "type": "create_map".
+- Nếu người dùng yêu cầu: "thêm nhánh", "sửa một vài ô", "nối thêm": Đặt "type": "modify_map".
+- Hãy tự đặt "id" cho các node logic (ví dụ "node-taylor", "node-lagrange", "node-fourier", v.v.) và dùng các id này trong mảng "edges" để liên kết chính xác.`;
+  },
+
+  /**
+   * Trích xuất AgentAction từ phản hồi của AI
+   */
+  extractAgentAction(content: string): AgentAction | null {
+    if (!content) return null;
+    try {
+      // Tìm khối ```json:agent-action hoặc ```json
+      const match = content.match(/```(?:json:agent-action|json)\s*([\s\S]*?)```/)
+        || content.match(/\{[\s\S]*"type"\s*:\s*"(?:create_map|modify_map)"[\s\S]*"nodes"\s*:\s*\[[\s\S]*\][\s\S]*\}/);
+      
+      if (!match) return null;
+      const jsonStr = match[1] || match[0];
+      const parsed = JSON.parse(jsonStr.trim());
+      if (parsed && (parsed.type === 'create_map' || parsed.type === 'modify_map') && Array.isArray(parsed.nodes)) {
+        return parsed as AgentAction;
+      }
+    } catch {
+      // ignore JSON parse errors during streaming
+    }
+    return null;
   },
 
   /**

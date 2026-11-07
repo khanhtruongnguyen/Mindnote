@@ -20,10 +20,12 @@ import {
   Clock,
   GripHorizontal,
   RotateCcw,
+  Wand2,
 } from 'lucide-react';
-import type { MapData, ChatMessage, ChatSession, AppSettings } from '../types';
+import type { MapData, ChatMessage, ChatSession, AppSettings, AgentAction } from '../types';
 import { AiService, cleanAiOutput } from '../services/aiService';
 import { StorageService } from '../services/storage';
+import { COLOR_SCHEMES } from '../constants/theme';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 interface AiChatPanelProps {
@@ -35,6 +37,7 @@ interface AiChatPanelProps {
   onOpenSettings: () => void;
   onFocusNode: (nodeId: string) => void;
   onAddNodeFromAi?: (label: string, content: string) => void;
+  onApplyAgentAction?: (action: AgentAction) => void;
   onUpdateSettings?: (updates: Partial<AppSettings>) => void;
 }
 
@@ -47,10 +50,15 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   onOpenSettings,
   onFocusNode,
   onAddNodeFromAi,
+  onApplyAgentAction,
   onUpdateSettings,
 }) => {
   // Option: Save chat history enabled/disabled (default: true)
   const isHistoryEnabled = settings.saveChatHistory !== false;
+
+  // AI Mode: 'chat' (Hỏi đáp, cố vấn) vs 'agent' (AI Agent tự động xây sửa map)
+  const [chatMode, setChatMode] = useState<'chat' | 'agent'>('chat');
+  const [autoApplyAgent, setAutoApplyAgent] = useState(false);
 
   // Multi-session state for this map
   const [sessions, setSessions] = useState<ChatSession[]>(() => {
@@ -202,13 +210,40 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   const currentApiKey =
     settings.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
 
-  // Quick Prompt Prompts
+  // Helper to remove ```json:agent-action code block from natural text display
+  const stripAgentActionCodeBlock = (content: string): string => {
+    return content.replace(/```(?:json:agent-action|json)[\s\S]*?```/gi, '').trim();
+  };
+
+  // Quick Prompt Prompts for Chat Mode
   const quickPrompts = [
     { label: '📊 Tóm tắt bản đồ', prompt: 'Hãy tóm tắt ngắn gọn các luận điểm cốt lõi trong sơ đồ tư duy này.' },
     { label: '🔍 Tìm điểm thiếu sót', prompt: 'Dựa trên sơ đồ hiện tại, bạn thấy tôi có đang bỏ quên khâu, định lý hoặc liên kết logic quan trọng nào không?' },
     { label: '📐 Soát công thức toán', prompt: 'Hãy kiểm tra lại các công thức toán học và định nghĩa trong các ô xem có chính xác chưa.' },
     { label: '💡 Gợi ý mở rộng', prompt: 'Hãy đề xuất cho tôi 3 ý tưởng/nhánh con mới có thể nối tiếp từ sơ đồ này.' },
   ];
+
+  // Quick Prompt Prompts for Agent Mode (Xây dựng & Chỉnh sửa Mind Map)
+  const agentQuickPrompts = [
+    { label: '🚀 Tạo toàn bộ Map từ Đề cương', prompt: 'Hãy đọc kỹ đề cương/ngữ cảnh của bản đồ và xây dựng toàn bộ sơ đồ Mind Map hoàn chỉnh gồm các chủ đề chính, nhánh con và công thức KaTeX chi tiết.' },
+    { label: '🌿 Thêm nhánh bài tập chuyên sâu', prompt: 'Dựa trên các ô hiện có trong bản đồ, hãy tạo thêm 3 ô nhánh bài tập vận dụng nâng cao và liên kết vào các chủ đề tương ứng.' },
+    { label: '🔗 Tự động nối các ô liên quan', prompt: 'Hãy phân tích các ô hiện có trong bản đồ và tạo các đường liên kết logic giữa các khái niệm có mối tương quan mật thiết.' },
+    { label: '📑 Hoàn thiện nội dung & Công thức', prompt: 'Hãy bổ sung và làm phong phú nội dung cho các ô hiện có, thêm công thức KaTeX, định nghĩa chuẩn xác và các ví dụ minh họa.' },
+  ];
+
+  // Apply Agent Action from a specific chat message
+  const handleApplyMessageAction = (msg: ChatMessage) => {
+    if (!msg.agentAction || !onApplyAgentAction) return;
+    onApplyAgentAction(msg.agentAction);
+    setSessions((prev) =>
+      prev.map((s) => ({
+        ...s,
+        messages: s.messages.map((m) =>
+          m.id === msg.id ? { ...m, isApplied: true } : m
+        ),
+      }))
+    );
+  };
 
   // Create a brand new chat session
   const handleCreateNewSession = () => {
@@ -333,7 +368,9 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     abortControllerRef.current = controller;
 
     try {
-      const systemPrompt = AiService.buildMindMapSystemPrompt(activeMap);
+      const systemPrompt = chatMode === 'agent'
+        ? AiService.buildAgentSystemPrompt(activeMap)
+        : AiService.buildMindMapSystemPrompt(activeMap);
       const activeSession = updatedSessions.find((s) => s.id === targetSessionId);
       const currentMessages = activeSession?.messages || [userMessage];
 
@@ -360,11 +397,24 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         },
       });
 
+      const fullCleanContent = cleanAiOutput(result.content);
+      const detectedAction = chatMode === 'agent'
+        ? AiService.extractAgentAction(fullCleanContent)
+        : null;
+
+      let appliedDirectly = false;
+      if (detectedAction && autoApplyAgent && onApplyAgentAction) {
+        onApplyAgentAction(detectedAction);
+        appliedDirectly = true;
+      }
+
       const assistantMessage: ChatMessage = {
         id: `msg-${Date.now()}-ai`,
         role: 'assistant',
-        content: cleanAiOutput(result.content) || '(Không có phản hồi)',
+        content: fullCleanContent || '(Không có phản hồi)',
         reasoningContent: result.reasoning || undefined,
+        agentAction: detectedAction || undefined,
+        isApplied: appliedDirectly,
         createdAt: Date.now(),
       };
 
@@ -598,6 +648,53 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         </div>
       </div>
 
+      {/* Mode Switcher: Hỏi đáp (Chat) vs AI Agent (Xây & Sửa Map) */}
+      <div className="flex items-center justify-between px-3 py-1.5 bg-[#101017] border-b border-[#252535] shrink-0 select-none">
+        <div className="flex items-center gap-1 bg-[#181822] p-0.5 rounded-lg border border-zinc-800 text-xs">
+          <button
+            type="button"
+            onClick={() => setChatMode('chat')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+              chatMode === 'chat'
+                ? 'bg-purple-600 text-white shadow-sm'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <MessageSquare className="w-3 h-3" />
+            <span>Hỏi đáp</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setChatMode('agent')}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+              chatMode === 'agent'
+                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-600/30'
+                : 'text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Wand2 className="w-3 h-3 text-purple-300 animate-pulse" />
+            <span>AI Agent (Xây sửa Map)</span>
+          </button>
+        </div>
+
+        {chatMode === 'agent' ? (
+          <label className="flex items-center gap-1.5 text-[11px] text-zinc-400 cursor-pointer select-none hover:text-zinc-200">
+            <input
+              type="checkbox"
+              checked={autoApplyAgent}
+              onChange={(e) => setAutoApplyAgent(e.target.checked)}
+              className="rounded border-zinc-700 bg-zinc-900 text-purple-600 focus:ring-0 w-3 h-3 cursor-pointer"
+            />
+            <span className="hidden sm:inline">Tự áp dụng vào Map</span>
+          </label>
+        ) : (
+          <div className="text-[10px] text-zinc-500 italic hidden sm:block">
+            Giải thích & cố vấn
+          </div>
+        )}
+      </div>
+
       {/* History Drawer Overlay (when user clicks History button) */}
       {isHistoryDrawerOpen ? (
         <div className="flex-1 flex flex-col bg-[#12121a] overflow-hidden p-3.5 animate-in fade-in duration-150">
@@ -705,32 +802,36 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5 text-xs">
           {messages.length === 0 && (
             <div className="py-6 px-3 text-center space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-purple-500/10 border border-purple-500/20 text-purple-400 flex items-center justify-center mx-auto shadow-inner">
-                <MessageSquare className="w-6 h-6" />
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-purple-600/20 to-indigo-600/20 border border-purple-500/30 text-purple-300 flex items-center justify-center mx-auto shadow-inner">
+                {chatMode === 'agent' ? <Wand2 className="w-6 h-6 animate-pulse" /> : <MessageSquare className="w-6 h-6" />}
               </div>
 
               <div>
                 <h4 className="text-sm font-semibold text-white mb-1">
-                  Sẵn sàng giải đáp về "{activeMap.name}"
+                  {chatMode === 'agent'
+                    ? `AI Agent Sẵn sàng Xây sửa "${activeMap.name}"`
+                    : `Sẵn sàng giải đáp về "${activeMap.name}"`}
                 </h4>
                 <p className="text-[11px] text-zinc-400 leading-relaxed max-w-xs mx-auto">
-                  AI đã nạp cấu trúc gồm {activeMap.nodes.length} ô ghi chú và các liên kết. 100% bằng tiếng Việt và hỗ trợ công thức toán học!
+                  {chatMode === 'agent'
+                    ? 'Bạn có thể dán đề cương vào Ngữ cảnh rồi yêu cầu: Agent sẽ tự động tạo các ô kiến thức, công thức KaTeX và nối đường liên kết logic!'
+                    : `AI đã nạp cấu trúc gồm ${activeMap.nodes.length} ô ghi chú và các liên kết. 100% bằng tiếng Việt và hỗ trợ công thức toán học!`}
                 </p>
               </div>
 
               {/* Quick action buttons */}
               <div className="flex flex-col gap-1.5 text-left pt-2">
                 <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider px-1">
-                  Gợi ý câu hỏi nhanh:
+                  {chatMode === 'agent' ? 'Lệnh Agent mẫu:' : 'Gợi ý câu hỏi nhanh:'}
                 </span>
-                {quickPrompts.map((q, idx) => (
+                {(chatMode === 'agent' ? agentQuickPrompts : quickPrompts).map((q, idx) => (
                   <button
                     key={idx}
                     onClick={() => handleSendMessage(q.prompt)}
                     className="flex items-center justify-between p-2.5 rounded-xl bg-[#1a1a26] hover:bg-[#222233] border border-[#2d2d3e] hover:border-purple-500/40 text-zinc-300 hover:text-white text-xs transition-colors group cursor-pointer text-left"
                   >
                     <span className="font-medium">{q.label}</span>
-                    <span className="text-[10px] text-zinc-500 group-hover:text-purple-300">Gửi ➔</span>
+                    <span className="text-[10px] text-zinc-500 group-hover:text-purple-300">Chạy ➔</span>
                   </button>
                 ))}
               </div>
@@ -770,13 +871,81 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
                 ) : (
                   <>
                     <MarkdownRenderer
-                      content={cleanAiOutput(msg.content)}
+                      content={stripAgentActionCodeBlock(cleanAiOutput(msg.content))}
                       attachments={activeMap.attachments}
                       onNodeClick={onFocusNode}
                     />
 
+                    {/* AI Agent Action Execution Card (Khung Áp dụng Thao tác Agent) */}
+                    {msg.agentAction && (
+                      <div className="mt-3 p-3 rounded-xl bg-[#13131c] border border-purple-500/40 shadow-lg space-y-2.5">
+                        <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                            <Wand2 className="w-3.5 h-3.5 text-purple-400" />
+                            <span>
+                              {msg.agentAction.type === 'create_map'
+                                ? '🚀 Kế hoạch: Xây mới toàn bộ Bản đồ'
+                                : '⚡ Kế hoạch: Cập nhật & Thêm nhánh'}
+                            </span>
+                          </div>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-950/80 text-purple-300 border border-purple-500/30">
+                            {msg.agentAction.nodes.length} ô • {(msg.agentAction.edges || []).length} đường nối
+                          </span>
+                        </div>
+
+                        {msg.agentAction.summary && (
+                          <p className="text-[11px] text-zinc-300 leading-relaxed font-medium">
+                            {msg.agentAction.summary}
+                          </p>
+                        )}
+
+                        {/* Visual Chips of Generated Nodes */}
+                        <div className="space-y-1">
+                          <span className="text-[10px] uppercase font-semibold text-zinc-500">
+                            Các ô sẽ được tạo / cập nhật:
+                          </span>
+                          <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto py-1">
+                            {msg.agentAction.nodes.map((n, idx) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#1e1e2d] border border-zinc-700/60 text-[10px] text-zinc-200 font-medium"
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full ${
+                                    COLOR_SCHEMES[n.color || 'purple']?.dot || 'bg-purple-400'
+                                  }`}
+                                />
+                                <span className="truncate max-w-[130px]">{n.label}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Apply Button */}
+                        {onApplyAgentAction && (
+                          <div className="pt-1 flex items-center justify-end">
+                            {msg.isApplied ? (
+                              <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold py-1 px-2.5 rounded-lg bg-emerald-950/30 border border-emerald-500/30">
+                                <Check className="w-4 h-4 text-emerald-400" />
+                                <span>Đã áp dụng vào Bản đồ thành công</span>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleApplyMessageAction(msg)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold shadow-md shadow-purple-600/30 transition-all hover:scale-[1.02] cursor-pointer"
+                              >
+                                <Wand2 className="w-3.5 h-3.5" />
+                                <span>⚡ Áp dụng vào Map ngay</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Action: Create Node from this AI message */}
-                    {onAddNodeFromAi && (
+                    {onAddNodeFromAi && !msg.agentAction && (
                       <div className="mt-2.5 pt-2 border-t border-zinc-800/80 flex items-center justify-end">
                         <button
                           type="button"
@@ -868,7 +1037,11 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
                   handleSendMessage();
                 }
               }}
-              placeholder="Hỏi AI về các ô, công thức, liên kết... (Enter để gửi)"
+              placeholder={
+                chatMode === 'agent'
+                  ? 'Giao nhiệm vụ cho AI Agent (vd: Đọc đề cương và tạo toàn bộ map, thêm nhánh bài tập...)'
+                  : 'Hỏi AI về các ô, công thức, liên kết... (Enter để gửi)'
+              }
               className="flex-1 bg-transparent text-xs text-zinc-100 placeholder-zinc-500 outline-none resize-none px-2 py-1.5 max-h-28 overflow-y-auto"
             />
 
@@ -884,10 +1057,14 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
               <button
                 onClick={() => handleSendMessage()}
                 disabled={!input.trim()}
-                title="Gửi câu hỏi"
-                className="p-2 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white shrink-0 transition-all shadow-md shadow-purple-600/20 disabled:shadow-none cursor-pointer disabled:cursor-not-allowed"
+                title={chatMode === 'agent' ? 'Chạy lệnh AI Agent' : 'Gửi câu hỏi'}
+                className={`p-2 rounded-lg text-white shrink-0 transition-all shadow-md cursor-pointer disabled:cursor-not-allowed disabled:bg-zinc-800 disabled:text-zinc-600 disabled:shadow-none ${
+                  chatMode === 'agent'
+                    ? 'bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-purple-600/30'
+                    : 'bg-purple-600 hover:bg-purple-500 shadow-purple-600/20'
+                }`}
               >
-                <Send className="w-3.5 h-3.5" />
+                {chatMode === 'agent' ? <Wand2 className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
               </button>
             )}
           </div>
