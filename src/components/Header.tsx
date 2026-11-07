@@ -18,6 +18,7 @@ import {
   Sparkles,
   GitBranch,
   Share2,
+  Brain,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -32,6 +33,8 @@ interface HeaderProps {
   onDeleteMap: (mapId: string) => void;
   onAddNode: () => void;
   onOpenConnectModal?: () => void;
+  onOpenContextModal?: () => void;
+  hasContext?: boolean;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
   onOpenGistModal: () => void;
@@ -53,6 +56,8 @@ export const Header: React.FC<HeaderProps> = ({
   onDeleteMap,
   onAddNode,
   onOpenConnectModal,
+  onOpenContextModal,
+  hasContext = false,
   onExportBackup,
   onImportBackup,
   onOpenGistModal,
@@ -265,6 +270,25 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Ngữ cảnh Sổ tay Map (Desktop) */}
+          {!isMobile && (
+            <button
+              onClick={onOpenContextModal}
+              title="Ngữ cảnh sổ tay: Cung cấp giáo trình, đề cương môn học cho AI"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold shadow-md transition-all hover:scale-[1.02] cursor-pointer ${
+                hasContext
+                  ? 'bg-purple-950/40 border-purple-500/50 text-purple-200 shadow-purple-900/30'
+                  : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-300 hover:text-white hover:border-purple-500/40'
+              }`}
+            >
+              <Brain className="w-3.5 h-3.5 text-purple-400" />
+              <span>Ngữ cảnh</span>
+              {hasContext && (
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
+              )}
+            </button>
+          )}
+
           {/* AI Assistant Button (Desktop) */}
           {!isMobile && (
             <button
@@ -421,6 +445,22 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" />
                   <span className="font-semibold">Trợ lý Mind Map AI</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    onOpenContextModal?.();
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Brain className="w-4 h-4 text-purple-400" />
+                    <span>Ngữ cảnh sổ tay (AI)</span>
+                  </span>
+                  {hasContext && (
+                    <span className="w-2 h-2 rounded-full bg-purple-400" />
+                  )}
                 </button>
 
                 <button

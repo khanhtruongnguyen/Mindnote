@@ -2,6 +2,7 @@ import React, { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { MindMapNodeData } from '../../types';
 import { COLOR_SCHEMES } from '../../constants/theme';
+import { MarkdownRenderer } from '../MarkdownRenderer';
 import { FileText, Sigma, Image as ImageIcon } from 'lucide-react';
 
 export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
@@ -14,7 +15,7 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
   const hasImage = nodeData.content?.includes('![');
 
   return (
-    <div className="relative group transition-transform duration-150">
+    <div className={`relative group transition-transform duration-150 ${selected ? 'z-[9999]' : ''}`}>
       {/* 4 Handles for connecting edges */}
       <Handle
         type="target"
@@ -107,6 +108,53 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
               {nodeData.content.replace(/#|\*|`|\$/g, '')}
             </p>
           )}
+        </div>
+      )}
+
+      {/* Full Note directly on Canvas mode (Hiển thị toàn bộ ghi chú trên Map) */}
+      {shape === 'full' && (
+        <div
+          className={`flex flex-col rounded-2xl border backdrop-blur-md cursor-pointer transition-all duration-200 select-none w-[320px] sm:w-[420px] max-h-[480px] shadow-2xl ${
+            colorScheme.bg
+          } ${colorScheme.border} ${
+            selected
+              ? `ring-2 ring-purple-400 ring-offset-2 ring-offset-[#121215] ${colorScheme.glow} shadow-purple-500/20`
+              : 'hover:border-zinc-500 shadow-black/60'
+          }`}
+        >
+          {/* Header of Full Note */}
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/10 bg-black/20 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className={`w-2.5 h-2.5 rounded-full ${colorScheme.dot} shrink-0 shadow-sm`} />
+              <span className="text-xs font-bold text-zinc-100 truncate">
+                {nodeData.label || 'Chưa đặt tên'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0 opacity-70">
+              {hasFormula && <Sigma className="w-3.5 h-3.5 text-cyan-400" />}
+              {hasImage && <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />}
+              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-white/10 text-zinc-300">
+                Toàn bộ
+              </span>
+            </div>
+          </div>
+
+          {/* Body with Markdown & KaTeX */}
+          <div
+            className="nowheel nopan nodrag p-3.5 overflow-y-auto max-h-[400px] text-xs space-y-2 select-text cursor-auto"
+            onWheel={(e) => e.stopPropagation()}
+          >
+            {nodeData.content && nodeData.content.trim() ? (
+              <MarkdownRenderer
+                content={nodeData.content}
+                attachments={nodeData.attachments as Record<string, string>}
+              />
+            ) : (
+              <div className="text-zinc-500 italic text-xs py-2">
+                Chưa có nội dung. Bấm vào ô này để bắt đầu viết chi tiết.
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

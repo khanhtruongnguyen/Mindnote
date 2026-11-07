@@ -84,13 +84,18 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     }));
   }, [mapData.edges, handleDeleteEdge]);
 
-  // Format nodes with selected flag
+  // Format nodes with selected flag, zIndex elevation, and attachments
   const formattedNodes = useMemo(() => {
     return mapData.nodes.map((node) => ({
       ...node,
       selected: node.id === selectedNodeId,
+      zIndex: node.id === selectedNodeId ? 9999 : (node.data.shape === 'full' ? 50 : 1),
+      data: {
+        ...node.data,
+        attachments: mapData.attachments || {},
+      },
     }));
-  }, [mapData.nodes, selectedNodeId]);
+  }, [mapData.nodes, selectedNodeId, mapData.attachments]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(formattedNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(formattedEdges);
@@ -101,9 +106,14 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
       mapData.nodes.map((node) => ({
         ...node,
         selected: node.id === selectedNodeId,
+        zIndex: node.id === selectedNodeId ? 9999 : (node.data.shape === 'full' ? 50 : 1),
+        data: {
+          ...node.data,
+          attachments: mapData.attachments || {},
+        },
       }))
     );
-  }, [mapData.id, mapData.nodes, selectedNodeId, setNodes]);
+  }, [mapData.id, mapData.nodes, selectedNodeId, mapData.attachments, setNodes]);
 
   React.useEffect(() => {
     setEdges(
@@ -226,6 +236,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        elevateNodesOnSelect={true}
         onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}

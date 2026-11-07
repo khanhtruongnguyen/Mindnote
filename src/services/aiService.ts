@@ -91,9 +91,13 @@ ${node.data.content || '(trống)'}
         }).join('\n')
       : '(Hiện tại các nút chưa có liên kết mũi tên nào)';
 
+    const contextSection = mapData.context && mapData.context.trim()
+      ? `\n=== NGỮ CẢNH SỔ TAY / KIẾN THỨC NỀN CỦA BẢN ĐỒ ===\n${mapData.context.trim()}\n(LƯU Ý: Đây là giáo trình, tài liệu chuyên môn và hướng dẫn nền tảng do sinh viên cung cấp cho bản đồ này. Mọi phân tích, giải thích và gợi ý BẮT BUỘC phải dựa trên ngữ cảnh chuyên môn này!)\n`
+      : '';
+
     return `Bạn là một trợ lý AI thông minh chuyên phân tích, giải thích, tóm tắt và mở rộng Sơ đồ tư duy (Mind Map).
 Người dùng đang làm việc trên sơ đồ tư duy có tên: "${mapData.name}".
-
+${contextSection}
 === THÔNG TIN SƠ ĐỒ TƯ DUY HIỆN TẠI ===
 * Tổng số ô ghi chú (nodes): ${mapData.nodes.length}
 * Các liên kết giữa các ô (edges):
@@ -221,14 +225,18 @@ ${nodesInfo}
     currentContent,
     mode,
     customInstruction,
+    mapContext,
+    images,
   }: {
     baseUrl: string;
     apiKey: string;
     model: string;
     nodeLabel: string;
     currentContent: string;
-    mode: 'expand' | 'summarize' | 'formula' | 'polish' | 'custom';
+    mode: 'expand' | 'summarize' | 'formula' | 'polish' | 'custom' | 'explain_image';
     customInstruction?: string;
+    mapContext?: string;
+    images?: string[];
   }): Promise<string> {
     const cleanUrl = cleanBaseUrl(baseUrl);
 
@@ -250,17 +258,26 @@ ${nodesInfo}
         instruction =
           'Hãy sửa lỗi chính tả, cải thiện ngữ pháp, làm cho câu từ mượt mà, chuyên nghiệp và chuẩn hóa cấu trúc Markdown (tiêu đề, in đậm, callout box).';
         break;
+      case 'explain_image':
+        instruction =
+          'Hãy đọc kỹ hình ảnh được đính kèm và phân tích, giải thích chi tiết các thành phần, cấu trúc, sơ đồ hoặc phương trình có trong ảnh thành nội dung bài học hoàn chỉnh.';
+        break;
       case 'custom':
         instruction = customInstruction || 'Hãy tối ưu và cải thiện nội dung ô ghi chú này.';
         break;
     }
 
-    const systemPrompt = `Bạn là trợ lý AI chuyên nghiệp về biên soạn nội dung và tài liệu học tập chuẩn Obsidian Markdown.
+    let fullSystemPrompt = `Bạn là trợ lý AI chuyên nghiệp về biên soạn nội dung và tài liệu học tập chuẩn Obsidian Markdown.
 QUY TẮC BẮT BUỘC:
 1. 100% tiếng Việt tự nhiên, không tiếng Trung, không xuất thẻ hệ thống hay [ATLAS-OK].
 2. Sử dụng Markdown đẹp mắt (heading, bold, list, blockquote).
 3. Sử dụng KaTeX ($...$ và $$...$$) cho công thức toán học nếu có.
-4. CHỈ TRẢ VỀ nội dung Markdown của ô ghi chú. KHÔNG kèm câu chào đầu hay lời giải thích ngoài lề.`;
+4. Có khả năng đọc và phân tích hình ảnh đính kèm (sơ đồ y khoa, tế bào, đồ thị toán, công thức viết tay...).
+5. CHỈ TRẢ VỀ nội dung Markdown của ô ghi chú. KHÔNG kèm câu chào đầu hay lời giải thích ngoài lề.`;
+
+    if (mapContext && mapContext.trim()) {
+      fullSystemPrompt += `\n\n[NGỮ CẢNH SỔ TAY / KIẾN THỨC NỀN CỦA BẢN ĐỒ]:\n${mapContext.trim()}\n(LƯU Ý: Hãy đối chiếu và sử dụng kiến thức, thuật ngữ trong ngữ cảnh này để viết nội dung chính xác theo giáo trình!)`;
+    }
 
     const userPrompt = `TIÊU ĐỀ Ô: "${nodeLabel}"
 
@@ -269,6 +286,21 @@ ${currentContent || '(Chưa có nội dung, hãy viết mới)'}
 
 YÊU CẦU:
 ${instruction}`;
+
+    // Payload người dùng: nếu có ảnh đính kèm, gửi dạng Multimodal Image Parts
+    let userMessageContent: unknown = userPrompt;
+    if (images && images.length > 0) {
+      userMessageContent = [
+        {
+          type: 'text',
+          text: `${userPrompt}\n\n(Dưới đây là hình ảnh đính kèm của ô ghi chú này, hãy đọc kỹ hình ảnh để giải thích và kết hợp vào bài viết):`,
+        },
+        ...images.map((img) => ({
+          type: 'image_url',
+          image_url: { url: img },
+        })),
+      ];
+    }
 
     const res = await fetch(`${cleanUrl}/chat/completions`, {
       method: 'POST',
@@ -279,8 +311,8 @@ ${instruction}`;
       body: JSON.stringify({
         model: model.trim(),
         messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
+          { role: 'system', content: fullSystemPrompt },
+          { role: 'user', content: userMessageContent },
         ],
         stream: false,
       }),
@@ -307,6 +339,7 @@ ${instruction}`;
     parentContent,
     mapName,
     existingNodeLabels,
+    mapContext,
     count = 3,
   }: {
     baseUrl: string;
@@ -316,11 +349,12 @@ ${instruction}`;
     parentContent: string;
     mapName: string;
     existingNodeLabels?: string[];
+    mapContext?: string;
     count?: number;
   }): Promise<Array<{ label: string; content: string }>> {
     const cleanUrl = cleanBaseUrl(baseUrl);
 
-    const systemPrompt = `Bạn là chuyên gia tư duy logic và cấu trúc sơ đồ tư duy (Mind Map).
+    let systemPrompt = `Bạn là chuyên gia tư duy logic và cấu trúc sơ đồ tư duy (Mind Map).
 Nhiệm vụ của bạn là phân tích ô ghi chú cha và đề xuất chính xác ${count} nhánh con logic tiếp theo.
 QUY TẮC:
 1. 100% tiếng Việt, không tiếng Trung, không [ATLAS-OK].
@@ -332,6 +366,10 @@ QUY TẮC:
   }
 ]
 3. KHÔNG viết thêm bất kỳ câu mở đầu, kết thúc hay giải thích nào bên ngoài khối JSON.`;
+
+    if (mapContext && mapContext.trim()) {
+      systemPrompt += `\n\n[NGỮ CẢNH SỔ TAY / KIẾN THỨC NỀN CỦA BẢN ĐỒ]:\n${mapContext.trim()}\nHãy đối chiếu giáo trình này để sinh các nhánh con chuẩn xác chuyên môn nhất.`;
+    }
 
     const userPrompt = `BẢN ĐỒ: "${mapName}"
 Ô CHA: "${parentLabel}"

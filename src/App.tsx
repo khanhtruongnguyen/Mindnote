@@ -12,6 +12,7 @@ import { NewMapModal } from './components/NewMapModal';
 import { AiChatPanel } from './components/AiChatPanel';
 import { AiSettingsModal } from './components/AiSettingsModal';
 import { ConnectNodesModal } from './components/ConnectNodesModal';
+import { MapContextModal } from './components/MapContextModal';
 import { useDeviceMode } from './hooks/useDeviceMode';
 import confetti from 'canvas-confetti';
 
@@ -34,6 +35,7 @@ export function App() {
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
+  const [isContextModalOpen, setIsContextModalOpen] = useState(false);
 
   // Active Map reference
   const activeMap = useMemo(() => {
@@ -493,6 +495,8 @@ export function App() {
         onOpenGistModal={() => setIsGistModalOpen(true)}
         onOpenHelpModal={() => setIsHelpModalOpen(true)}
         onOpenConnectModal={() => setIsConnectModalOpen(true)}
+        onOpenContextModal={() => setIsContextModalOpen(true)}
+        hasContext={Boolean(activeMap.context?.trim())}
         hasGistConfigured={Boolean(settings.githubToken && settings.gistId)}
         isAiOpen={isAiChatOpen}
         onToggleAi={() => setIsAiChatOpen((prev) => !prev)}
@@ -526,6 +530,8 @@ export function App() {
         allNodes={activeMap.nodes}
         edges={activeMap.edges}
         mapName={activeMap.name}
+        mapContext={activeMap.context}
+        onOpenContextModal={() => setIsContextModalOpen(true)}
         settings={settings}
         onAddBranchNodes={handleAddBranchNodes}
         onAddEdge={handleAddEdge}
@@ -603,6 +609,15 @@ export function App() {
         edges={activeMap.edges}
         onAddEdge={handleAddEdge}
         onDeleteEdge={handleDeleteEdge}
+      />
+
+      {/* Map Context / Knowledge Base Modal */}
+      <MapContextModal
+        isOpen={isContextModalOpen}
+        mapName={activeMap.name}
+        initialContext={activeMap.context || ''}
+        onClose={() => setIsContextModalOpen(false)}
+        onSaveContext={(ctx) => handleUpdateCurrentMap({ context: ctx })}
       />
     </div>
   );

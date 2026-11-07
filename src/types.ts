@@ -10,7 +10,7 @@ export type NodeColor =
   | 'indigo' 
   | 'graphite';
 
-export type NodeShape = 'pill' | 'circle' | 'card';
+export type NodeShape = 'pill' | 'circle' | 'card' | 'full';
 
 export interface MindMapNodeData {
   label: string;
@@ -29,6 +29,7 @@ export interface MapData {
   name: string;
   nodes: CustomNode[];
   edges: Edge[];
+  context?: string; // Ngữ cảnh sổ tay / Kiến thức nền của Map dành cho AI
   attachments?: Record<string, string>; // attachmentId -> base64
   createdAt: number;
   updatedAt: number;

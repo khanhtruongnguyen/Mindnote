@@ -31,6 +31,7 @@ import {
   Wand2,
   Loader2,
   Check,
+  Brain,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -40,6 +41,8 @@ interface SidebarProps {
   edges?: Edge[];
   settings?: AppSettings;
   mapName?: string;
+  mapContext?: string;
+  onOpenContextModal?: () => void;
   onAddBranchNodes?: (parentNode: CustomNode, branches: Array<{ label: string; content: string }>) => void;
   onAddEdge?: (sourceId: string, targetId: string) => void;
   onDeleteEdge?: (edgeId: string) => void;
@@ -62,6 +65,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   edges = [],
   settings,
   mapName,
+  mapContext,
+  onOpenContextModal,
   onAddBranchNodes,
   onAddEdge,
   onDeleteEdge,
@@ -204,7 +209,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   // AI Note Writing Handlers
-  const handleRunAiWriter = async (mode: 'expand' | 'summarize' | 'formula' | 'polish' | 'custom') => {
+  const handleRunAiWriter = async (mode: 'expand' | 'summarize' | 'formula' | 'polish' | 'custom' | 'explain_image') => {
     if (!selectedNode) return;
     setAiWriterLoading(true);
     setAiWriterError(null);
@@ -215,6 +220,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       const apiKey = settings?.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
       const model = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
 
+      // Trích xuất hình ảnh đính kèm trong note nếu có
+      const imageRegex = /attachment:([^\s\)]+)/g;
+      const imageMatches = [...(selectedNode.data.content || '').matchAll(imageRegex)];
+      const imageList = imageMatches
+        .map((m) => attachments[m[1]])
+        .filter((b64): b64 is string => Boolean(b64));
+
       const result = await AiService.refineNoteContent({
         baseUrl,
         apiKey,
@@ -223,6 +235,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         currentContent: selectedNode.data.content || '',
         mode,
         customInstruction: aiCustomInstruction.trim(),
+        mapContext,
+        images: imageList.length > 0 ? imageList : undefined,
       });
 
       setAiWriterResult(result);
@@ -267,6 +281,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         parentContent: selectedNode.data.content || '',
         mapName: mapName || 'Bản đồ tư duy',
         existingNodeLabels: existingLabels,
+        mapContext,
         count: 3,
       });
 
@@ -529,7 +544,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <div className="flex items-center justify-between gap-2 pt-0.5 overflow-x-auto">
             {/* Shape Picker */}
             <div className="flex items-center gap-1 bg-[#1c1c24] p-0.5 rounded-lg border border-zinc-800 text-[11px] shrink-0">
-              {(['pill', 'circle', 'card'] as NodeShape[]).map((shape) => (
+              {(['pill', 'circle', 'card', 'full'] as NodeShape[]).map((shape) => (
                 <button
                   key={shape}
                   onClick={() => onUpdateNode(selectedNode.id, { shape })}
@@ -539,7 +554,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       : 'text-zinc-400 hover:text-zinc-200'
                   }`}
                 >
-                  {shape === 'pill' ? 'Thẻ' : shape === 'circle' ? 'Chấm' : 'Hộp'}
+                  {shape === 'pill' ? 'Thẻ' : shape === 'circle' ? 'Chấm' : shape === 'card' ? 'Hộp' : 'Toàn bộ'}
                 </button>
               ))}
             </div>
@@ -909,6 +924,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
+            {/* Trạng thái Ngữ cảnh Sổ tay của Map */}
+            <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-[#191924] border border-[#2b2b3d] text-[11px]">
+              <div className="flex items-center gap-1.5 text-zinc-300">
+                <Brain className="w-3.5 h-3.5 text-purple-400" />
+                <span>
+                  Ngữ cảnh AI:{' '}
+                  {mapContext && mapContext.trim() ? (
+                    <span className="text-emerald-400 font-medium">Đang kích hoạt</span>
+                  ) : (
+                    <span className="text-zinc-500 italic">Chưa thiết lập</span>
+                  )}
+                </span>
+              </div>
+              {onOpenContextModal && (
+                <button
+                  type="button"
+                  onClick={onOpenContextModal}
+                  className="text-purple-400 hover:text-purple-300 underline font-medium cursor-pointer"
+                >
+                  {mapContext && mapContext.trim() ? 'Xem/Sửa' : '+ Thêm đề cương'}
+                </button>
+              )}
+            </div>
+
             {/* Preset Action Chips */}
             <div className="flex flex-wrap gap-1.5">
               <button
@@ -946,6 +985,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               >
                 <span>✍️ Sửa lỗi & trau chuốt</span>
               </button>
+
+              {/* Nếu note có ảnh, cho phép AI đọc ảnh */}
+              {selectedNode?.data.content?.includes('![') && (
+                <button
+                  type="button"
+                  disabled={aiWriterLoading}
+                  onClick={() => handleRunAiWriter('explain_image')}
+                  title="AI Gemini Vision đọc ảnh đính kèm và phân tích thành bài học"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 border border-emerald-500/50 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+                >
+                  <span>🖼️ Đọc & Giải thích ảnh</span>
+                </button>
+              )}
             </div>
 
             {/* Custom Instruction Input */}
