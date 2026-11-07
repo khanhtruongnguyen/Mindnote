@@ -3,17 +3,19 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
-import { ExternalLink, Lightbulb, MapPin } from 'lucide-react';
+import { ExternalLink, Lightbulb, Compass } from 'lucide-react';
 
 interface MarkdownRendererProps {
   content: string;
   attachments?: Record<string, string>;
+  onNavigate?: (mapId?: string, noteId?: string) => void;
   onNodeClick?: (nodeId: string) => void;
 }
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
   content,
   attachments = {},
+  onNavigate,
   onNodeClick,
 }) => {
   if (!content || !content.trim()) {
@@ -70,26 +72,52 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({
               </blockquote>
             );
           },
-          /* Liên kết Web hoặc Node trong Mind Map */
+          /* Liên kết Web & Google Docs & Liên kết nội bộ Map/Node */
           a: ({ href, children }) => {
-            if (href?.startsWith('node:')) {
-              const targetNodeId = href.replace(/^node:/, '');
+            if (!href) return <span>{children}</span>;
+
+            // Kiểm tra nếu là link nội bộ của ứng dụng (chứa ?map= hoặc ?note=)
+            const isInternal =
+              href.startsWith('?') ||
+              href.startsWith('#') ||
+              href.startsWith('node:') ||
+              (href.includes('?') && (href.includes('map=') || href.includes('note=')));
+
+            if (isInternal && (onNavigate || onNodeClick)) {
               return (
                 <button
                   type="button"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    onNodeClick?.(targetNodeId);
+                    try {
+                      if (href.startsWith('node:')) {
+                        const targetId = href.replace('node:', '');
+                        if (onNodeClick) onNodeClick(targetId);
+                        else if (onNavigate) onNavigate(undefined, targetId);
+                        return;
+                      }
+                      const dummy = new URL(href, window.location.origin);
+                      const targetMap = dummy.searchParams.get('map') || undefined;
+                      const targetNote = dummy.searchParams.get('note') || undefined;
+                      if (onNavigate) {
+                        onNavigate(targetMap, targetNote);
+                      } else if (onNodeClick && targetNote) {
+                        onNodeClick(targetNote);
+                      }
+                    } catch {
+                      // Fallback
+                    }
                   }}
-                  className="inline-flex items-center gap-1 text-purple-300 hover:text-white font-medium bg-purple-500/20 hover:bg-purple-500/35 px-2 py-0.5 rounded-full border border-purple-500/40 transition-all cursor-pointer my-0.5 text-xs shadow-sm"
-                  title="Nhấp để chuyển đến vị trí ô này trên sơ đồ"
+                  title="Nhấp để lướt camera đến ô ghi chú này trên bản đồ"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 my-0.5 rounded-full bg-purple-500/20 hover:bg-purple-500/35 text-purple-200 hover:text-white border border-purple-500/40 text-xs font-medium cursor-pointer transition-colors shadow-sm"
                 >
-                  <MapPin className="w-3 h-3 text-purple-400 shrink-0" />
+                  <Compass className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                   <span>{children}</span>
                 </button>
               );
             }
+
             return (
               <a
                 href={href}

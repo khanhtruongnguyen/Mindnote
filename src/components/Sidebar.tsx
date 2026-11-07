@@ -35,6 +35,7 @@ import {
 
 interface SidebarProps {
   selectedNode: CustomNode | null;
+  activeMapId?: string;
   allNodes?: CustomNode[];
   edges?: Edge[];
   settings?: AppSettings;
@@ -43,6 +44,7 @@ interface SidebarProps {
   onAddEdge?: (sourceId: string, targetId: string) => void;
   onDeleteEdge?: (edgeId: string) => void;
   onSelectNodeById?: (nodeId: string) => void;
+  onNavigate?: (mapId?: string, noteId?: string) => void;
   attachments?: Record<string, string>;
   isMobile?: boolean;
   onUpdateNode: (id: string, updates: Partial<CustomNode['data']>) => void;
@@ -55,6 +57,7 @@ type ViewMode = 'edit' | 'preview' | 'split';
 
 export const Sidebar: React.FC<SidebarProps> = ({
   selectedNode,
+  activeMapId,
   allNodes = [],
   edges = [],
   settings,
@@ -63,6 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onAddEdge,
   onDeleteEdge,
   onSelectNodeById,
+  onNavigate,
   attachments = {},
   isMobile = false,
   onUpdateNode,
@@ -78,6 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [targetConnectId, setTargetConnectId] = useState<string>('');
   const [linkTitle, setLinkTitle] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
+  const [copiedNoteLink, setCopiedNoteLink] = useState(false);
 
   // AI Note Writing Assistant states
   const [showAiWriter, setShowAiWriter] = useState(false);
@@ -180,6 +185,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       reader.readAsDataURL(file);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleCopyNoteLink = () => {
+    if (!selectedNode) return;
+    try {
+      const url = new URL(window.location.href);
+      if (activeMapId) {
+        url.searchParams.set('map', activeMapId);
+      }
+      url.searchParams.set('note', selectedNode.id);
+      navigator.clipboard.writeText(url.toString());
+      setCopiedNoteLink(true);
+      setTimeout(() => setCopiedNoteLink(false), 2000);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   // AI Note Writing Handlers
@@ -419,6 +440,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span>{isGeneratingBranches ? 'Đang sinh...' : '+ Nhánh con AI'}</span>
               </button>
             )}
+
+            {/* Nút Sao chép liên kết trực tiếp đến ô này (Deep Link) */}
+            <button
+              type="button"
+              onClick={handleCopyNoteLink}
+              title="Sao chép đường link dẫn thẳng đến ô ghi chú này"
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                copiedNoteLink
+                  ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm'
+                  : 'bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border-zinc-700'
+              }`}
+            >
+              {copiedNoteLink ? (
+                <>
+                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Đã chép link</span>
+                </>
+              ) : (
+                <>
+                  <LinkIcon className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden sm:inline">Lấy link</span>
+                </>
+              )}
+            </button>
 
             {/* Syntax Handbook Button */}
             <button
@@ -999,7 +1044,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* PREVIEW ONLY */}
           {viewMode === 'preview' && (
             <div className="flex-1 p-4 sm:p-5 overflow-y-auto select-text">
-              <MarkdownRenderer content={data.content || ''} attachments={attachments} />
+              <MarkdownRenderer content={data.content || ''} attachments={attachments} onNavigate={onNavigate} />
             </div>
           )}
 
@@ -1021,7 +1066,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <Sparkles className="w-3 h-3 text-purple-400" />
                   <span>Xem trước trực tiếp</span>
                 </div>
-                <MarkdownRenderer content={data.content || ''} attachments={attachments} />
+                <MarkdownRenderer content={data.content || ''} attachments={attachments} onNavigate={onNavigate} />
               </div>
             </div>
           )}

@@ -17,6 +17,7 @@ import {
   Monitor,
   Sparkles,
   GitBranch,
+  Share2,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -64,9 +65,23 @@ export const Header: React.FC<HeaderProps> = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(activeMap.name);
+  const [copiedMapLink, setCopiedMapLink] = useState(false);
   const fileImportRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
+
+  const handleCopyMapLink = () => {
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('map', activeMap.id);
+      url.searchParams.delete('note');
+      navigator.clipboard.writeText(url.toString());
+      setCopiedMapLink(true);
+      setTimeout(() => setCopiedMapLink(false), 2000);
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   useEffect(() => {
     setEditedName(activeMap.name);
@@ -173,6 +188,17 @@ export const Header: React.FC<HeaderProps> = ({
                       <Edit2 className="w-3 h-3" />
                     </button>
                   )}
+                  <button
+                    onClick={handleCopyMapLink}
+                    title="Sao chép đường link dẫn thẳng đến Bản đồ này"
+                    className="p-1 rounded text-zinc-500 hover:text-purple-300 transition-colors"
+                  >
+                    {copiedMapLink ? (
+                      <Check className="w-3 h-3 text-emerald-400" />
+                    ) : (
+                      <Share2 className="w-3 h-3" />
+                    )}
+                  </button>
                 </>
               )}
             </div>
@@ -406,6 +432,20 @@ export const Header: React.FC<HeaderProps> = ({
                 >
                   <GitBranch className="w-4 h-4 text-purple-400" />
                   <span>Nối liên kết các ô</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    handleCopyMapLink();
+                  }}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Share2 className="w-4 h-4 text-purple-400" />
+                    <span>Sao chép link Bản đồ</span>
+                  </span>
+                  {copiedMapLink && <span className="text-[10px] text-emerald-400">Đã chép</span>}
                 </button>
 
                 <button

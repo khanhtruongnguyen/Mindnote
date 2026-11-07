@@ -88,6 +88,72 @@ export function App() {
     StorageService.saveSettings({ ...settings, activeMapId });
   }, [settings, activeMapId]);
 
+  // Đọc Deep Link từ URL khi mới mở ứng dụng (?map=xxx&note=yyy)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const paramMap = params.get('map');
+      const paramNote = params.get('note');
+
+      if (paramMap) {
+        const found = maps.find((m) => m.id === paramMap);
+        if (found) {
+          setActiveMapId(found.id);
+          if (paramNote && found.nodes.some((n) => n.id === paramNote)) {
+            setSelectedNodeId(paramNote);
+            setFocusNodeId(paramNote);
+          }
+          return;
+        }
+      }
+
+      if (paramNote) {
+        for (const m of maps) {
+          if (m.nodes.some((n) => n.id === paramNote)) {
+            setActiveMapId(m.id);
+            setSelectedNodeId(paramNote);
+            setFocusNodeId(paramNote);
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to parse URL deep link params:', e);
+    }
+  }, []);
+
+  // Đồng bộ URL theo thời gian thực (để người dùng có thể copy luôn từ thanh URL trình duyệt)
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      if (activeMapId) {
+        url.searchParams.set('map', activeMapId);
+      }
+      if (selectedNodeId) {
+        url.searchParams.set('note', selectedNodeId);
+      } else {
+        url.searchParams.delete('note');
+      }
+      window.history.replaceState(null, '', url.toString());
+    } catch (e) {
+      console.error(e);
+    }
+  }, [activeMapId, selectedNodeId]);
+
+  // Chuyển hướng nội bộ khi click link map/note trong bài viết
+  const handleNavigateInternal = useCallback(
+    (targetMapId?: string, targetNodeId?: string) => {
+      if (targetMapId && maps.some((m) => m.id === targetMapId)) {
+        setActiveMapId(targetMapId);
+      }
+      if (targetNodeId) {
+        setSelectedNodeId(targetNodeId);
+        setFocusNodeId(targetNodeId);
+      }
+    },
+    [maps]
+  );
+
   // Focus a node from AI chat click
   const handleFocusNode = useCallback((nodeId: string) => {
     setSelectedNodeId(nodeId);
@@ -456,6 +522,7 @@ export function App() {
       {/* Obsidian Note Detail Sidebar (Bottom Sheet on Mobile) */}
       <Sidebar
         selectedNode={selectedNode}
+        activeMapId={activeMapId}
         allNodes={activeMap.nodes}
         edges={activeMap.edges}
         mapName={activeMap.name}
@@ -464,6 +531,7 @@ export function App() {
         onAddEdge={handleAddEdge}
         onDeleteEdge={handleDeleteEdge}
         onSelectNodeById={handleFocusNode}
+        onNavigate={handleNavigateInternal}
         attachments={activeMap.attachments || {}}
         isMobile={isMobile}
         onUpdateNode={handleUpdateNode}
