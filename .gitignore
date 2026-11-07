@@ -23,6 +23,11 @@ dist-ssr
 *.sln
 *.sw?
 
+# Credentials & secrets
+*credentials*
+.env*
+*.env
+
 # Local helper scripts
 Chay-Ung-Dung.bat
 Mo-Ung-Dung.html
