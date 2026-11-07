@@ -45,6 +45,13 @@ export interface AppSettings {
   aiModel?: string;
   cachedModels?: string[];
   saveChatHistory?: boolean;
+  // Supabase Cloud Sync
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  supabaseAutoSync?: boolean;
+  supabaseRealtime?: boolean;
+  supabaseUserEmail?: string;
+  lastCloudSyncedAt?: number;
 }
 
 export interface AgentActionNode {

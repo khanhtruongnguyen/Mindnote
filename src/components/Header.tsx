@@ -19,6 +19,7 @@ import {
   GitBranch,
   Share2,
   Brain,
+  Database,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -38,8 +39,10 @@ interface HeaderProps {
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
   onOpenGistModal: () => void;
+  onOpenSupabaseModal?: () => void;
   onOpenHelpModal: () => void;
   hasGistConfigured: boolean;
+  hasSupabaseConfigured?: boolean;
   isAiOpen?: boolean;
   onToggleAi?: () => void;
 }
@@ -61,8 +64,10 @@ export const Header: React.FC<HeaderProps> = ({
   onExportBackup,
   onImportBackup,
   onOpenGistModal,
+  onOpenSupabaseModal,
   onOpenHelpModal,
   hasGistConfigured,
+  hasSupabaseConfigured = false,
   isAiOpen = false,
   onToggleAi,
 }) => {
@@ -351,20 +356,37 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
+          {/* Desktop Supabase Cloud Button */}
+          {!isMobile && onOpenSupabaseModal && (
+            <button
+              onClick={onOpenSupabaseModal}
+              title={hasSupabaseConfigured ? 'Supabase Cloud đã kết nối (Realtime)' : 'Kết nối Supabase Cloud'}
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors cursor-pointer ${
+                hasSupabaseConfigured
+                  ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 shadow-sm shadow-emerald-500/20'
+                  : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-400 hover:text-white'
+              }`}
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Cloud Sync</span>
+              {hasSupabaseConfigured && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+            </button>
+          )}
+
           {/* Desktop Gist Sync Button */}
           {!isMobile && (
             <button
               onClick={onOpenGistModal}
               title={hasGistConfigured ? 'GitHub Gist đã kết nối' : 'Kết nối GitHub Gist'}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors cursor-pointer ${
                 hasGistConfigured
-                  ? 'bg-emerald-950/30 border-emerald-500/40 text-emerald-300'
+                  ? 'bg-purple-950/30 border-purple-500/40 text-purple-300'
                   : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-400 hover:text-white'
               }`}
             >
-              <Cloud className="w-3.5 h-3.5" />
-              <span>Gist Sync</span>
-              {hasGistConfigured && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+              <Cloud className="w-3.5 h-3.5 text-purple-400" />
+              <span>Gist</span>
+              {hasGistConfigured && <div className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />}
             </button>
           )}
 
@@ -488,6 +510,22 @@ export const Header: React.FC<HeaderProps> = ({
                   {copiedMapLink && <span className="text-[10px] text-emerald-400">Đã chép</span>}
                 </button>
 
+                {onOpenSupabaseModal && (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onOpenSupabaseModal();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-emerald-400" />
+                      <span>Đồng bộ Supabase Cloud</span>
+                    </span>
+                    {hasSupabaseConfigured && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />}
+                  </button>
+                )}
+
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);
@@ -499,7 +537,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <Cloud className="w-4 h-4 text-purple-400" />
                     <span>Đồng bộ Gist</span>
                   </span>
-                  {hasGistConfigured && <span className="w-2 h-2 rounded-full bg-emerald-400" />}
+                  {hasGistConfigured && <span className="w-2 h-2 rounded-full bg-purple-400" />}
                 </button>
 
                 <button

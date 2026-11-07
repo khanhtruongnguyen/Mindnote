@@ -7,6 +7,7 @@ import { Header } from './components/Header';
 import { CanvasWorkspace } from './components/CanvasWorkspace';
 import { Sidebar } from './components/Sidebar';
 import { GistSyncModal } from './components/GistSyncModal';
+import { SupabaseSyncModal } from './components/SupabaseSyncModal';
 import { HelpModal } from './components/HelpModal';
 import { NewMapModal } from './components/NewMapModal';
 import { AiChatPanel } from './components/AiChatPanel';
@@ -14,6 +15,11 @@ import { AiSettingsModal } from './components/AiSettingsModal';
 import { ConnectNodesModal } from './components/ConnectNodesModal';
 import { MapContextModal } from './components/MapContextModal';
 import { useDeviceMode } from './hooks/useDeviceMode';
+import {
+  syncMapToSupabase,
+  subscribeToRemoteMaps,
+  uploadAttachmentToSupabase,
+} from './services/supabase';
 import confetti from 'canvas-confetti';
 
 export function App() {
@@ -31,6 +37,7 @@ export function App() {
 
   // Modals
   const [isGistModalOpen, setIsGistModalOpen] = useState(false);
+  const [isSupabaseModalOpen, setIsSupabaseModalOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isNewMapModalOpen, setIsNewMapModalOpen] = useState(false);
   const [isAiChatOpen, setIsAiChatOpen] = useState(false);
@@ -117,17 +124,30 @@ export function App() {
     [activeMap.id]
   );
 
-  // Save image attachment handler
+  // Save image attachment handler (Tự động tải lên Supabase Storage CDN nếu đã kết nối)
   const handleSaveAttachment = useCallback(
-    (attachId: string, base64: string) => {
+    async (attachId: string, base64: string) => {
+      let finalUri = base64;
+
+      if (settings.supabaseUrl && settings.supabaseAnonKey) {
+        try {
+          const cdnUrl = await uploadAttachmentToSupabase(attachId, base64);
+          if (cdnUrl) {
+            finalUri = cdnUrl;
+          }
+        } catch (e) {
+          console.warn('Không thể tải ảnh lên Supabase Storage, lưu tạm Base64:', e);
+        }
+      }
+
       handleUpdateCurrentMap({
         attachments: {
           ...(activeMap.attachments || {}),
-          [attachId]: base64,
+          [attachId]: finalUri,
         },
       });
     },
-    [activeMap.attachments, handleUpdateCurrentMap]
+    [activeMap.attachments, handleUpdateCurrentMap, settings.supabaseUrl, settings.supabaseAnonKey]
   );
 
   // Auto-save maps to IndexedDB (Debounced 300ms)
@@ -138,6 +158,54 @@ export function App() {
     }, 300);
     return () => clearTimeout(timer);
   }, [maps, isStorageReady]);
+
+  // Tự động đồng bộ Map hiện tại lên Supabase Cloud (Debounced 1000ms để tối ưu băng thông)
+  useEffect(() => {
+    if (
+      !isStorageReady ||
+      settings.supabaseAutoSync === false ||
+      !settings.supabaseUrl ||
+      !settings.supabaseAnonKey
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      syncMapToSupabase(activeMap);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [activeMap, isStorageReady, settings.supabaseAutoSync, settings.supabaseUrl, settings.supabaseAnonKey]);
+
+  // Lắng nghe kênh Realtime từ Supabase (Đồng bộ tức thì giữa máy tính và điện thoại qua WebSocket)
+  useEffect(() => {
+    if (
+      !isStorageReady ||
+      settings.supabaseRealtime === false ||
+      !settings.supabaseUrl ||
+      !settings.supabaseAnonKey
+    ) {
+      return;
+    }
+
+    const unsubscribe = subscribeToRemoteMaps(
+      (remoteMap) => {
+        setMaps((prev) => {
+          const exists = prev.some((m) => m.id === remoteMap.id);
+          if (exists) {
+            return prev.map((m) => (m.id === remoteMap.id ? remoteMap : m));
+          } else {
+            return [remoteMap, ...prev];
+          }
+        });
+      },
+      (deletedMapId) => {
+        setMaps((prev) => prev.filter((m) => m.id !== deletedMapId));
+      }
+    );
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, [isStorageReady, settings.supabaseRealtime, settings.supabaseUrl, settings.supabaseAnonKey]);
 
   // Auto-save settings (Debounced 300ms)
   useEffect(() => {
@@ -669,11 +737,13 @@ export function App() {
         onExportBackup={handleExportBackup}
         onImportBackup={handleImportBackup}
         onOpenGistModal={() => setIsGistModalOpen(true)}
+        onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
         onOpenHelpModal={() => setIsHelpModalOpen(true)}
         onOpenConnectModal={() => setIsConnectModalOpen(true)}
         onOpenContextModal={() => setIsContextModalOpen(true)}
         hasContext={Boolean(activeMap.context?.trim())}
         hasGistConfigured={Boolean(settings.githubToken && settings.gistId)}
+        hasSupabaseConfigured={Boolean(settings.supabaseUrl && settings.supabaseAnonKey)}
         isAiOpen={isAiChatOpen}
         onToggleAi={() => setIsAiChatOpen((prev) => !prev)}
       />
@@ -721,6 +791,25 @@ export function App() {
         onDeleteNode={handleDeleteNode}
         onClose={() => setSelectedNodeId(null)}
         onSaveAttachment={handleSaveAttachment}
+      />
+
+      {/* Supabase Cloud Sync Modal */}
+      <SupabaseSyncModal
+        isOpen={isSupabaseModalOpen}
+        onClose={() => setIsSupabaseModalOpen(false)}
+        maps={maps}
+        onMapsLoaded={(loadedMaps) => {
+          setMaps(loadedMaps);
+          if (loadedMaps.length > 0) {
+            const currentStillExists = loadedMaps.some((m) => m.id === activeMapId);
+            if (!currentStillExists) {
+              setActiveMapId(loadedMaps[0].id);
+            }
+            setSelectedNodeId(null);
+          }
+        }}
+        settings={settings}
+        onSaveSettings={handleSaveSettings}
       />
 
       {/* GitHub Gist Sync Modal */}
