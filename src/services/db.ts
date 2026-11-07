@@ -93,19 +93,23 @@ export async function idbSaveAllMaps(maps: MapData[]): Promise<boolean> {
   const db = await openDB();
   if (!db) return false;
 
+  // Đảm bảo dữ liệu thuần túy (không chứa functions hay closures như onDelete, onNavigate)
+  // để tránh lỗi DataCloneError trong IndexedDB structuredClone
+  const safeMaps = JSON.parse(JSON.stringify(maps));
+
   return new Promise((resolve) => {
     try {
       const tx = db.transaction(STORE_MAPS, 'readwrite');
       const store = tx.objectStore(STORE_MAPS);
 
       store.clear();
-      for (const map of maps) {
+      for (const map of safeMaps) {
         store.put(map);
       }
 
       tx.oncomplete = () => resolve(true);
-      tx.onerror = () => {
-        console.error('[IndexedDB] Transaction error saving maps:', tx.error);
+      tx.onerror = (e) => {
+        console.error('[IndexedDB] Transaction error saving maps:', tx.error || e);
         resolve(false);
       };
     } catch (err) {

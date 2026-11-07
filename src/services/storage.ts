@@ -177,19 +177,27 @@ export const DEFAULT_AI_CONFIG = {
 export const StorageService = {
   cleanMapsData(maps: MapData[]): MapData[] {
     if (!Array.isArray(maps)) return [];
-    return maps.map((map) => ({
-      ...map,
-      nodes: (map.nodes || []).map((node) => {
-        const rawData = { ...((node.data || {}) as Record<string, unknown>) };
-        delete rawData.attachments;
-        delete rawData.onNavigate;
-        delete rawData.onNodeClick;
-        return {
-          ...node,
-          data: rawData as any,
-        };
-      }),
-    }));
+    try {
+      // Dùng JSON parse/stringify để triệt tiêu toàn bộ functions / closures (như onDelete, onNavigate)
+      // giúp an toàn 100% với IndexedDB structuredClone
+      const pureMaps: MapData[] = JSON.parse(JSON.stringify(maps));
+      return pureMaps.map((map) => ({
+        ...map,
+        nodes: (map.nodes || []).map((node) => {
+          const rawData = { ...((node.data || {}) as Record<string, unknown>) };
+          delete rawData.attachments;
+          delete rawData.onNavigate;
+          delete rawData.onNodeClick;
+          return {
+            ...node,
+            data: rawData as any,
+          };
+        }),
+      }));
+    } catch (e) {
+      console.error('Error in cleanMapsData:', e);
+      return maps;
+    }
   },
 
   async init(): Promise<void> {
@@ -268,18 +276,40 @@ export const StorageService = {
   async getMaps(): Promise<MapData[]> {
     try {
       const fromDb = await idbGetAllMaps();
+
+      // Kiểm tra localStorage dự phòng xem có dữ liệu mới hơn không
+      const localData = localStorage.getItem(STORAGE_MAPS_KEY);
+      let localMaps: MapData[] | null = null;
+      if (localData) {
+        try {
+          const parsed = JSON.parse(localData);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            localMaps = this.cleanMapsData(parsed);
+          }
+        } catch {}
+      }
+
+      // So sánh thời gian cập nhật giữa IndexedDB và localStorage để luôn chọn bản mới nhất, không bao giờ mất nhánh
+      if (fromDb && fromDb.length > 0 && localMaps && localMaps.length > 0) {
+        const dbLatest = Math.max(...fromDb.map((m) => m.updatedAt || 0));
+        const localLatest = Math.max(...localMaps.map((m) => m.updatedAt || 0));
+        if (localLatest > dbLatest) {
+          console.log('[Storage] Phát hiện localStorage có dữ liệu mới hơn IndexedDB, tự động khôi phục!');
+          await idbSaveAllMaps(localMaps);
+          return localMaps;
+        }
+        return this.cleanMapsData(fromDb);
+      }
+
       if (fromDb && fromDb.length > 0) {
         return this.cleanMapsData(fromDb);
       }
 
-      // Dự phòng đọc từ localStorage nếu IndexedDB chưa sẵn sàng hoặc rỗng
-      const localData = localStorage.getItem(STORAGE_MAPS_KEY);
-      if (localData) {
-        const parsed = JSON.parse(localData);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return this.cleanMapsData(parsed);
-        }
+      if (localMaps && localMaps.length > 0) {
+        await idbSaveAllMaps(localMaps);
+        return localMaps;
       }
+
       return [DEFAULT_STARTER_MAP];
     } catch (e) {
       console.error('Lỗi khi nạp bản đồ:', e);
@@ -290,10 +320,18 @@ export const StorageService = {
   async saveMaps(maps: MapData[]): Promise<void> {
     try {
       const cleaned = this.cleanMapsData(maps);
+
+      // 1. Luôn ghi song song vào localStorage để dự phòng khẩn cấp
+      try {
+        localStorage.setItem(STORAGE_MAPS_KEY, JSON.stringify(cleaned));
+      } catch (err) {
+        // Bỏ qua nếu localStorage bị đầy (QuotaExceeded)
+      }
+
+      // 2. Ghi chính vào IndexedDB dung lượng lớn
       const ok = await idbSaveAllMaps(cleaned);
       if (!ok) {
-        // Dự phòng ghi vào localStorage nếu IndexedDB gặp lỗi
-        localStorage.setItem(STORAGE_MAPS_KEY, JSON.stringify(cleaned));
+        console.warn('[Storage] Ghi IndexedDB gặp trục trặc, dữ liệu đã được bảo toàn ở localStorage dự phòng.');
       }
     } catch (e) {
       console.error('Lỗi khi lưu bản đồ:', e);
