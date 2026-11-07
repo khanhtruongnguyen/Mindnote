@@ -21,6 +21,7 @@ import {
   Brain,
   Database,
   FolderOpen,
+  FileText,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -38,6 +39,7 @@ interface HeaderProps {
   onOpenContextModal?: () => void;
   hasContext?: boolean;
   onExportBackup: () => void;
+  onExportSingleMap: (map: MapData) => void;
   onImportBackup: (file: File) => void;
   onDesktopImport?: () => void;
   onOpenGistModal: () => void;
@@ -64,6 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenContextModal,
   hasContext = false,
   onExportBackup,
+  onExportSingleMap,
   onImportBackup,
   onDesktopImport,
   onOpenGistModal,
@@ -76,12 +79,14 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const isDesktop = typeof window !== 'undefined' && Boolean(window.mindnoteDesktop?.isDesktop);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(activeMap.name);
   const [copiedMapLink, setCopiedMapLink] = useState(false);
   const fileImportRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const exportDropdownRef = useRef<HTMLDivElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   const handleCopyMapLink = () => {
@@ -107,6 +112,9 @@ export const Header: React.FC<HeaderProps> = ({
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
+      }
+      if (exportDropdownRef.current && !exportDropdownRef.current.contains(e.target as Node)) {
+        setExportDropdownOpen(false);
       }
       if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
         setMobileMenuOpen(false);
@@ -241,20 +249,32 @@ export const Header: React.FC<HeaderProps> = ({
                         }}
                       >
                         <span className="truncate pr-2">{m.name}</span>
-                        {maps.length > 1 && (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (confirm(`Xác nhận xóa bản đồ "${m.name}"?`)) {
-                                onDeleteMap(m.id);
-                              }
+                              onExportSingleMap(m);
                             }}
-                            className="opacity-0 group-hover:opacity-100 p-1 rounded text-zinc-500 hover:text-rose-400 transition-opacity"
-                            title="Xóa Map này"
+                            className="p-1 rounded text-zinc-400 hover:text-purple-300 transition-colors"
+                            title={`Xuất riêng bản đồ "${m.name}"`}
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Download className="w-3.5 h-3.5" />
                           </button>
-                        )}
+                          {maps.length > 1 && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (confirm(`Xác nhận xóa bản đồ "${m.name}"?`)) {
+                                  onDeleteMap(m.id);
+                                }
+                              }}
+                              className="p-1 rounded text-zinc-500 hover:text-rose-400 transition-colors"
+                              title="Xóa Map này"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}
@@ -338,15 +358,68 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          {/* Desktop Export / Backup */}
+          {/* Desktop Export Menu (Single Map vs Full Vault) */}
           {!isMobile && (
-            <button
-              onClick={onExportBackup}
-              title={isDesktop ? "Xuất file JSON sao lưu ra máy tính" : "Xuất file JSON sao lưu"}
-              className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
-            >
-              <Download className="w-4 h-4" />
-            </button>
+            <div className="relative" ref={exportDropdownRef}>
+              <button
+                onClick={() => setExportDropdownOpen(!exportDropdownOpen)}
+                title="Tùy chọn xuất file JSON (Xuất riêng 1 Map hoặc Sao lưu cả kho)"
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors cursor-pointer ${
+                  exportDropdownOpen
+                    ? 'bg-purple-600/30 border-purple-500/50 text-purple-200'
+                    : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-400 hover:text-white'
+                }`}
+              >
+                <Download className="w-3.5 h-3.5" />
+                <ChevronDown className="w-3 h-3 text-zinc-500" />
+              </button>
+
+              {exportDropdownOpen && (
+                <div className="absolute right-0 top-11 w-72 bg-[#1a1a24] border border-[#2e2e3e] rounded-xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1">
+                  <div className="px-2 py-1 text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+                    Tùy chọn xuất file JSON
+                  </div>
+
+                  {/* Option 1: Xuất riêng Map hiện tại */}
+                  <button
+                    onClick={() => {
+                      setExportDropdownOpen(false);
+                      onExportSingleMap(activeMap);
+                    }}
+                    className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-purple-600/20 text-zinc-200 transition-colors group cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-purple-400 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                    <div>
+                      <div className="text-xs font-semibold text-purple-300">
+                        Xuất riêng Map này (Khuyên dùng)
+                      </div>
+                      <div className="text-[11px] text-zinc-400 leading-tight mt-0.5">
+                        Tải "{activeMap.name}.json" siêu nhẹ, đầy đủ ảnh để mang lên lớp / điện thoại.
+                      </div>
+                    </div>
+                  </button>
+
+                  {/* Option 2: Sao lưu toàn bộ kho */}
+                  <button
+                    onClick={() => {
+                      setExportDropdownOpen(false);
+                      onExportBackup();
+                    }}
+                    className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-[#252535] text-zinc-200 transition-colors group cursor-pointer border-t border-zinc-800/60 pt-2"
+                  >
+                    <Layers className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                    <div>
+                      <div className="text-xs font-semibold text-zinc-300">
+                        Sao lưu toàn bộ kho ({maps.length} bản đồ)
+                      </div>
+                      <div className="text-[11px] text-zinc-500 leading-tight mt-0.5">
+                        Lưu toàn bộ các bản đồ vào 1 file backup lớn để cất giữ an toàn.
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Desktop Import */}
@@ -565,12 +638,23 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);
+                    onExportSingleMap(activeMap);
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                >
+                  <FileText className="w-4 h-4 text-purple-400" />
+                  <span>Xuất riêng Map này ({activeMap.name})</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
                     onExportBackup();
                   }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
                 >
-                  <Download className="w-4 h-4 text-blue-400" />
-                  <span>Xuất file JSON sao lưu</span>
+                  <Layers className="w-4 h-4 text-blue-400" />
+                  <span>Sao lưu toàn bộ kho ({maps.length} Map)</span>
                 </button>
 
                 <button

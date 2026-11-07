@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('mindnoteDesktop', {
   saveAttachment: (attachId, base64) => ipcRenderer.invoke('desktop:save-attachment', { attachId, base64 }),
   importBackupDialog: () => ipcRenderer.invoke('desktop:import-backup-dialog'),
   exportBackupDialog: (maps) => ipcRenderer.invoke('desktop:export-backup-dialog', maps),
+  exportSingleMapDialog: (map) => ipcRenderer.invoke('desktop:export-single-map-dialog', map),
+  normalizeImportedMap: (map) => ipcRenderer.invoke('desktop:normalize-imported-map', map),
   minimizeWindow: () => ipcRenderer.invoke('desktop:minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('desktop:maximize-window'),
   closeWindow: () => ipcRenderer.invoke('desktop:close-window'),

@@ -211,11 +211,11 @@ ipcMain.handle('desktop:save-attachment', async (_event, { attachId, base64 }) =
   }
 });
 
-// 6. Nhập file backup JSON từ hộp thoại Windows
+// 6. Nhập file backup JSON từ hộp thoại Windows (Hỗ trợ cả Single Map và Full Vault)
 ipcMain.handle('desktop:import-backup-dialog', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: 'Chọn file JSON sao lưu Mindnote',
-    filters: [{ name: 'JSON Backup', extensions: ['json'] }],
+    title: 'Chọn file JSON Mindnote (1 Map hoặc Toàn bộ kho)',
+    filters: [{ name: 'Mindnote JSON', extensions: ['json'] }],
     properties: ['openFile'],
   });
 
@@ -226,18 +226,18 @@ ipcMain.handle('desktop:import-backup-dialog', async () => {
   try {
     const raw = fs.readFileSync(result.filePaths[0], 'utf8');
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : null;
+    return parsed;
   } catch (err) {
     dialog.showErrorBox('Lỗi nhập dữ liệu', `Không thể đọc file: ${err.message}`);
     return null;
   }
 });
 
-// 7. Xuất file backup JSON ra hộp thoại Windows
+// 7. Xuất toàn bộ kho maps ra file JSON
 ipcMain.handle('desktop:export-backup-dialog', async (_event, maps) => {
-  const defaultName = `mindnote_backup_${new Date().toISOString().slice(0, 10)}.json`;
+  const defaultName = `mindnote_vault_backup_${new Date().toISOString().slice(0, 10)}.json`;
   const result = await dialog.showSaveDialog(mainWindow, {
-    title: 'Lưu bản sao lưu Mindnote',
+    title: 'Lưu toàn bộ kho bản đồ Mindnote',
     defaultPath: path.join(app.getPath('downloads'), defaultName),
     filters: [{ name: 'JSON Backup', extensions: ['json'] }],
   });
@@ -252,6 +252,94 @@ ipcMain.handle('desktop:export-backup-dialog', async (_event, maps) => {
   } catch (err) {
     dialog.showErrorBox('Lỗi xuất dữ liệu', `Không thể ghi file: ${err.message}`);
     return false;
+  }
+});
+
+// 8. Xuất RIÊNG 1 MAP ĐƠN LẺ (Tự động nhúng Base64 để mang lên Web/iPhone đọc được ngay)
+ipcMain.handle('desktop:export-single-map-dialog', async (_event, map) => {
+  try {
+    ensureVaultDirectories();
+    const preparedMap = JSON.parse(JSON.stringify(map));
+
+    // Chuyển đổi các ảnh mindnote-asset:// trên ổ cứng thành Base64 vào file xuất
+    if (preparedMap.attachments) {
+      for (const [id, uri] of Object.entries(preparedMap.attachments)) {
+        if (typeof uri === 'string' && uri.startsWith('mindnote-asset://')) {
+          let cleanFileName = uri.replace(/^mindnote-asset:\/\//, '');
+          cleanFileName = decodeURIComponent(cleanFileName.split('?')[0].split('#')[0]).replace(/^\/+/, '');
+          const filePath = path.join(ATTACHMENTS_DIR, cleanFileName);
+
+          if (fs.existsSync(filePath)) {
+            const ext = path.extname(cleanFileName).replace('.', '') || 'png';
+            const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+            const buffer = fs.readFileSync(filePath);
+            preparedMap.attachments[id] = `data:${mimeType};base64,${buffer.toString('base64')}`;
+          }
+        }
+      }
+    }
+
+    const safeName = (map.name || 'map').replace(/[\\/:*?"<>|]/g, '_').slice(0, 50);
+    const defaultName = `${safeName}_mindnote.json`;
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: `Xuất riêng bản đồ "${map.name}"`,
+      defaultPath: path.join(app.getPath('downloads'), defaultName),
+      filters: [{ name: 'Mindnote Single Map', extensions: ['json'] }],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return false;
+    }
+
+    const payload = {
+      version: 1,
+      type: 'mindnote_single_map',
+      exportedAt: Date.now(),
+      source: 'desktop',
+      map: preparedMap,
+    };
+
+    fs.writeFileSync(result.filePath, JSON.stringify(payload, null, 2), 'utf8');
+    return true;
+  } catch (err) {
+    console.error('[Desktop Storage] Lỗi xuất single map:', err);
+    dialog.showErrorBox('Lỗi xuất bản đồ', `Không thể ghi file: ${err.message}`);
+    return false;
+  }
+});
+
+// 9. Chuẩn hóa Map nạp vào Desktop (Bóc Base64 lưu thành file ảnh .png trên SSD)
+ipcMain.handle('desktop:normalize-imported-map', async (_event, map) => {
+  try {
+    ensureVaultDirectories();
+    const normalized = JSON.parse(JSON.stringify(map));
+
+    if (normalized.attachments) {
+      for (const [id, uri] of Object.entries(normalized.attachments)) {
+        if (typeof uri === 'string' && uri.startsWith('data:image/')) {
+          let mimeType = 'image/png';
+          let base64Data = uri;
+          if (uri.includes(';base64,')) {
+            const parts = uri.split(';base64,');
+            mimeType = parts[0].replace('data:', '');
+            base64Data = parts[1];
+          }
+          const ext = mimeType.split('/')[1] || 'png';
+          const fileName = `${id}.${ext}`;
+          const filePath = path.join(ATTACHMENTS_DIR, fileName);
+          const buffer = Buffer.from(base64Data, 'base64');
+          fs.writeFileSync(filePath, buffer);
+
+          // Đổi sang giao thức siêu nhẹ của Desktop
+          normalized.attachments[id] = `mindnote-asset://${fileName}`;
+        }
+      }
+    }
+
+    return normalized;
+  } catch (err) {
+    console.error('[Desktop Storage] Lỗi normalize imported map:', err);
+    return map;
   }
 });
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ReactFlowProvider, MarkerType, type Edge } from '@xyflow/react';
-import type { CustomNode, MapData, NodeColor, AgentAction } from './types';
+import type { CustomNode, MapData, NodeColor, AgentAction, ImportDataResult } from './types';
 import { StorageService, DEFAULT_STARTER_MAP } from './services/storage';
 import { COLOR_SCHEMES } from './constants/theme';
 import { Header } from './components/Header';
@@ -14,6 +14,7 @@ import { AiChatPanel } from './components/AiChatPanel';
 import { AiSettingsModal } from './components/AiSettingsModal';
 import { ConnectNodesModal } from './components/ConnectNodesModal';
 import { MapContextModal } from './components/MapContextModal';
+import { ImportConfirmModal } from './components/ImportConfirmModal';
 import { useDeviceMode } from './hooks/useDeviceMode';
 import {
   syncMapToSupabase,
@@ -44,6 +45,8 @@ export function App() {
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isContextModalOpen, setIsContextModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [pendingImportResult, setPendingImportResult] = useState<ImportDataResult | null>(null);
 
   // Khởi tạo IndexedDB và nạp dữ liệu bản đồ
   useEffect(() => {
@@ -571,6 +574,7 @@ export function App() {
         setIsNewMapModalOpen(false);
         setIsAiSettingsOpen(false);
         setIsConnectModalOpen(false);
+        setIsImportModalOpen(false);
       }
     };
 
@@ -699,41 +703,159 @@ export function App() {
     [activeMap.nodes, activeMap.edges, selectedNodeId, handleUpdateCurrentMap]
   );
 
-  // Export & Import
+  // Export & Import Handlers
   const handleExportBackup = () => {
     StorageService.exportBackup(maps);
   };
 
+  const handleExportSingleMap = (mapToExport: MapData) => {
+    StorageService.exportSingleMap(mapToExport);
+  };
+
   const handleImportBackup = async (file: File) => {
     try {
-      const imported = await StorageService.importBackup(file);
-      setMaps(imported);
-      if (imported.length > 0) {
-        setActiveMapId(imported[0].id);
-        setSelectedNodeId(null);
-      }
-      alert(`Đã nhập thành công ${imported.length} bản đồ ghi chú!`);
+      const result = await StorageService.importBackup(file);
+      setPendingImportResult(result);
+      setIsImportModalOpen(true);
     } catch (e: unknown) {
       const err = e as Error;
-      alert(`Lỗi khi nhập file: ${err.message}`);
+      alert(`Lỗi khi đọc file: ${err.message}`);
     }
   };
 
   const handleDesktopImport = async () => {
     if (!window.mindnoteDesktop?.isDesktop) return;
     try {
-      const imported = await window.mindnoteDesktop.importBackupDialog();
-      if (!imported) return; // Người dùng hủy chọn
-      setMaps(imported);
-      if (imported.length > 0) {
-        setActiveMapId(imported[0].id);
-        setSelectedNodeId(null);
-      }
-      alert(`Đã nạp thành công ${imported.length} bản đồ ghi chú vào Vault!`);
+      const rawData = await window.mindnoteDesktop.importBackupDialog();
+      if (!rawData) return; // Người dùng hủy chọn
+      const result = StorageService.parseImportData(rawData);
+      setPendingImportResult(result);
+      setIsImportModalOpen(true);
     } catch (e: unknown) {
       const err = e as Error;
-      alert(`Lỗi khi nhập file: ${err.message}`);
+      alert(`Lỗi khi nạp file từ máy tính: ${err.message}`);
     }
+  };
+
+  // 1. Cập nhật đè lên Map hiện tại (Đồng thời tự động tạo bản lưu an toàn cho Map cũ)
+  const handleConfirmUpdateExisting = async (importedMap: MapData, existingMapId: string) => {
+    let finalMap = importedMap;
+    if (window.mindnoteDesktop?.isDesktop) {
+      try {
+        finalMap = await window.mindnoteDesktop.normalizeImportedMap(importedMap);
+      } catch (err) {
+        console.warn('Lỗi normalize imported map:', err);
+      }
+    }
+
+    const existingMap = maps.find((m) => m.id === existingMapId);
+    const now = Date.now();
+    const timeStr = new Date(now).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+
+    let updatedList: MapData[] = [];
+    if (existingMap) {
+      // Tự động sao lưu bản cũ vào kho để an toàn 100%
+      const backupMap: MapData = {
+        ...existingMap,
+        id: `backup-${existingMap.id}-${now}`,
+        name: `${existingMap.name} (Lưu dự phòng ${timeStr})`,
+        updatedAt: now,
+      };
+      updatedList = maps.map((m) =>
+        m.id === existingMapId ? { ...finalMap, id: existingMapId, updatedAt: now } : m
+      );
+      updatedList.push(backupMap);
+    } else {
+      updatedList = [...maps, { ...finalMap, id: existingMapId, updatedAt: now }];
+    }
+
+    setMaps(updatedList);
+    setActiveMapId(existingMapId);
+    setSelectedNodeId(null);
+    confetti({ particleCount: 30, spread: 60, origin: { y: 0.8 } });
+  };
+
+  // 2. Thêm thành Map mới độc lập
+  const handleConfirmAddNewMap = async (importedMap: MapData) => {
+    let finalMap = importedMap;
+    if (window.mindnoteDesktop?.isDesktop) {
+      try {
+        finalMap = await window.mindnoteDesktop.normalizeImportedMap(importedMap);
+      } catch (err) {
+        console.warn('Lỗi normalize imported map:', err);
+      }
+    }
+
+    const now = Date.now();
+    const newId = `map-${now}`;
+    const newName = maps.some(
+      (m) => m.id === importedMap.id || m.name.trim().toLowerCase() === importedMap.name.trim().toLowerCase()
+    )
+      ? `${importedMap.name} (Bản mới)`
+      : importedMap.name;
+
+    const newMap: MapData = {
+      ...finalMap,
+      id: newId,
+      name: newName,
+      updatedAt: now,
+    };
+
+    setMaps((prev) => [...prev, newMap]);
+    setActiveMapId(newId);
+    setSelectedNodeId(null);
+    confetti({ particleCount: 30, spread: 60, origin: { y: 0.8 } });
+  };
+
+  // 3. Gộp file đa bản đồ vào kho hiện tại
+  const handleConfirmMergeVault = async (importedMaps: MapData[]) => {
+    let finalMaps = importedMaps;
+    if (window.mindnoteDesktop?.isDesktop) {
+      try {
+        finalMaps = await Promise.all(
+          importedMaps.map((m) => window.mindnoteDesktop!.normalizeImportedMap(m))
+        );
+      } catch (err) {
+        console.warn('Lỗi normalize imported maps:', err);
+      }
+    }
+
+    const mergedMap = new Map<string, MapData>();
+    for (const m of maps) {
+      mergedMap.set(m.id, m);
+    }
+    for (const m of finalMaps) {
+      mergedMap.set(m.id, m);
+    }
+
+    const result = Array.from(mergedMap.values());
+    setMaps(result);
+    if (finalMaps.length > 0) {
+      setActiveMapId(finalMaps[0].id);
+      setSelectedNodeId(null);
+    }
+    confetti({ particleCount: 40, spread: 70, origin: { y: 0.8 } });
+  };
+
+  // 4. Thay thế toàn bộ kho bằng file backup
+  const handleConfirmReplaceVault = async (importedMaps: MapData[]) => {
+    let finalMaps = importedMaps;
+    if (window.mindnoteDesktop?.isDesktop) {
+      try {
+        finalMaps = await Promise.all(
+          importedMaps.map((m) => window.mindnoteDesktop!.normalizeImportedMap(m))
+        );
+      } catch (err) {
+        console.warn('Lỗi normalize imported maps:', err);
+      }
+    }
+
+    setMaps(finalMaps);
+    if (finalMaps.length > 0) {
+      setActiveMapId(finalMaps[0].id);
+      setSelectedNodeId(null);
+    }
+    confetti({ particleCount: 50, spread: 80, origin: { y: 0.8 } });
   };
 
   if (!isStorageReady) {
@@ -763,6 +885,7 @@ export function App() {
         onDeleteMap={handleDeleteMap}
         onAddNode={handleAddNodeCenter}
         onExportBackup={handleExportBackup}
+        onExportSingleMap={handleExportSingleMap}
         onImportBackup={handleImportBackup}
         onDesktopImport={handleDesktopImport}
         onOpenGistModal={() => setIsGistModalOpen(true)}
@@ -917,6 +1040,21 @@ export function App() {
         initialContext={activeMap.context || ''}
         onClose={() => setIsContextModalOpen(false)}
         onSaveContext={(ctx) => handleUpdateCurrentMap({ context: ctx })}
+      />
+
+      {/* Modal Xác Nhận Nhập Bản Đồ Đơn Lẻ / Khôi Phục Kho Thông Minh */}
+      <ImportConfirmModal
+        isOpen={isImportModalOpen}
+        importResult={pendingImportResult}
+        existingMaps={maps}
+        onClose={() => {
+          setIsImportModalOpen(false);
+          setPendingImportResult(null);
+        }}
+        onUpdateExisting={handleConfirmUpdateExisting}
+        onAddNewMap={handleConfirmAddNewMap}
+        onMergeVault={handleConfirmMergeVault}
+        onReplaceVault={handleConfirmReplaceVault}
       />
     </div>
   );

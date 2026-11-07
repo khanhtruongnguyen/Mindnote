@@ -1,4 +1,4 @@
-import type { MapData, AppSettings, ChatSession } from '../types';
+import type { MapData, AppSettings, ChatSession, SingleMapExportPayload, ImportDataResult } from '../types';
 import {
   openDB,
   idbGetAllMaps,
@@ -468,6 +468,7 @@ export const StorageService = {
     }
   },
 
+  // Xuất toàn bộ kho Map (Full Vault Backup)
   async exportBackup(maps: MapData[]): Promise<void> {
     const cleaned = this.cleanMapsData(maps);
     if (this.isDesktop() && window.mindnoteDesktop) {
@@ -479,28 +480,89 @@ export const StorageService = {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `mindmap_notes_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `mindnote_vault_backup_${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   },
 
-  importBackup(file: File): Promise<MapData[]> {
+  // Xuất riêng 1 Map duy nhất (Gọn nhẹ, mang lên Web / iPhone học trên lớp)
+  async exportSingleMap(map: MapData): Promise<void> {
+    const cleaned = this.cleanMapsData([map])[0];
+    if (this.isDesktop() && window.mindnoteDesktop) {
+      await window.mindnoteDesktop.exportSingleMapDialog(cleaned);
+      return;
+    }
+
+    const payload: SingleMapExportPayload = {
+      version: 1,
+      type: 'mindnote_single_map',
+      exportedAt: Date.now(),
+      source: 'web',
+      map: cleaned,
+    };
+
+    const jsonStr = JSON.stringify(payload, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const safeName = (map.name || 'map').replace(/[\\/:*?"<>|]/g, '_').slice(0, 50);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeName}_mindnote.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  // Phân tích dữ liệu file nhập vào (Tự động nhận diện Single Map hoặc Multi-maps)
+  parseImportData(rawJson: unknown): ImportDataResult {
+    let data = rawJson;
+    if (typeof rawJson === 'string') {
+      data = JSON.parse(rawJson);
+    }
+
+    if (!data || typeof data !== 'object') {
+      throw new Error('Dữ liệu file không hợp lệ.');
+    }
+
+    // Định dạng 1: Đóng gói chuẩn Single Map
+    if ((data as any).type === 'mindnote_single_map' && (data as any).map) {
+      const cleaned = this.cleanMapsData([(data as any).map])[0];
+      return { type: 'single_map', map: cleaned };
+    }
+
+    // Định dạng 2: Object đơn lẻ của 1 Map ({ id, name, nodes, ... })
+    if (!Array.isArray(data) && (data as any).id && (data as any).name && Array.isArray((data as any).nodes)) {
+      const cleaned = this.cleanMapsData([data as MapData])[0];
+      return { type: 'single_map', map: cleaned };
+    }
+
+    // Định dạng 3: Mảng các Map (Full Backup hoặc Mảng 1 phần tử)
+    if (Array.isArray(data)) {
+      const cleaned = this.cleanMapsData(data);
+      if (cleaned.length === 0) {
+        throw new Error('File không chứa bản đồ nào.');
+      }
+      if (cleaned.length === 1) {
+        return { type: 'single_map', map: cleaned[0] };
+      }
+      return { type: 'multi_maps', maps: cleaned };
+    }
+
+    throw new Error('Định dạng file không phù hợp với Mindnote.');
+  },
+
+  importBackup(file: File): Promise<ImportDataResult> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = (e) => {
         try {
           const content = e.target?.result as string;
-          const parsed = JSON.parse(content);
-          if (Array.isArray(parsed)) {
-            resolve(this.cleanMapsData(parsed));
-          } else {
-            reject(new Error('Định dạng file sao lưu không hợp lệ.'));
-          }
-        } catch {
-          reject(new Error('Không thể đọc file JSON.'));
+          const result = this.parseImportData(content);
+          resolve(result);
+        } catch (err: any) {
+          reject(new Error(err?.message || 'Không thể đọc file JSON.'));
         }
       };
-      reader.onerror = () => reject(new Error('Lỗi khi đọc file.'));
+      reader.onerror = () => reject(new Error('Lỗi khi đọc file từ ổ cứng.'));
       reader.readAsText(file);
     });
   },

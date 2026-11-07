@@ -96,6 +96,18 @@ export interface ChatSession {
   updatedAt: number;
 }
 
+export interface SingleMapExportPayload {
+  version: 1;
+  type: 'mindnote_single_map';
+  exportedAt: number;
+  source: 'desktop' | 'web';
+  map: MapData;
+}
+
+export type ImportDataResult =
+  | { type: 'single_map'; map: MapData }
+  | { type: 'multi_maps'; maps: MapData[] };
+
 export interface MindnoteDesktopBridge {
   isDesktop: boolean;
   getVaultInfo: () => Promise<{
@@ -108,8 +120,10 @@ export interface MindnoteDesktopBridge {
   loadMaps: () => Promise<MapData[] | null>;
   saveMaps: (maps: MapData[]) => Promise<boolean>;
   saveAttachment: (attachId: string, base64: string) => Promise<string | null>;
-  importBackupDialog: () => Promise<MapData[] | null>;
+  importBackupDialog: () => Promise<unknown>;
   exportBackupDialog: (maps: MapData[]) => Promise<boolean>;
+  exportSingleMapDialog: (map: MapData) => Promise<boolean>;
+  normalizeImportedMap: (map: MapData) => Promise<MapData>;
   minimizeWindow: () => Promise<void>;
   maximizeWindow: () => Promise<void>;
   closeWindow: () => Promise<void>;
@@ -120,4 +134,5 @@ declare global {
     mindnoteDesktop?: MindnoteDesktopBridge;
   }
 }
+
 
