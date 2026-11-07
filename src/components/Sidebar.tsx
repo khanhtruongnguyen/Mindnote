@@ -36,6 +36,8 @@ import {
   ScanText,
   Upload,
   Palette,
+  Compass,
+  Globe,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -86,6 +88,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? 'edit' : 'split');
   const [showFormulaMenu, setShowFormulaMenu] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
+  const [linkModalTab, setLinkModalTab] = useState<'internal' | 'external'>('internal');
+  const [selectedInternalNodeId, setSelectedInternalNodeId] = useState<string>('');
+  const [internalLinkSyntax, setInternalLinkSyntax] = useState<'wiki' | 'markdown'>('wiki');
   const [showHandbookModal, setShowHandbookModal] = useState(false);
   const [showConnections, setShowConnections] = useState(false);
   const [targetConnectId, setTargetConnectId] = useState<string>('');
@@ -340,7 +345,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  const handleInsertLink = (e: React.FormEvent) => {
+  // Chuyển nhanh đến ô ghi chú nội bộ khi click link bên trong ghi chú
+  const handleInternalNodeClick = (targetId: string) => {
+    const lower = targetId.toLowerCase().trim();
+    const target = allNodes.find(
+      (n) =>
+        n.id === targetId ||
+        n.data.label?.toLowerCase().trim() === lower ||
+        n.data.label?.toLowerCase().includes(lower)
+    );
+    if (target && onSelectNodeById) {
+      onSelectNodeById(target.id);
+    } else if (onNavigate) {
+      onNavigate(undefined, target?.id || targetId);
+    } else {
+      window.dispatchEvent(
+        new CustomEvent('canvas-navigate', { detail: { noteId: target?.id || targetId } })
+      );
+    }
+  };
+
+  const handleInsertInternalLink = (e: React.FormEvent) => {
+    e.preventDefault();
+    const targetNode = allNodes.find((n) => n.id === selectedInternalNodeId);
+    const targetLabel = targetNode?.data.label || selectedInternalNodeId || 'Ghi chú';
+    const displayTitle = linkTitle.trim();
+
+    if (internalLinkSyntax === 'wiki') {
+      if (!displayTitle || displayTitle === targetLabel) {
+        insertTextAtCursor(`[[${targetLabel}]]`);
+      } else {
+        insertTextAtCursor(`[[${targetLabel}|${displayTitle}]]`);
+      }
+    } else {
+      insertTextAtCursor(`[${displayTitle || targetLabel}](node:${selectedInternalNodeId || targetLabel})`);
+    }
+
+    setLinkTitle('');
+    setSelectedInternalNodeId('');
+    setShowLinkModal(false);
+  };
+
+  const handleInsertExternalLink = (e: React.FormEvent) => {
     e.preventDefault();
     if (!linkUrl.trim()) return;
     const title = linkTitle.trim() || 'Tài liệu liên kết';
@@ -832,10 +878,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>Đóng ô</span>
             </button>
 
-            {/* CHÈN LINK GOOGLE DOCS / WEB */}
+            {/* CHÈN LINK GOOGLE DOCS / WEB / NỘI BỘ */}
             <button
-              onClick={() => setShowLinkModal(true)}
-              title="Chèn liên kết Google Docs"
+              onClick={() => {
+                const otherNodes = allNodes.filter((n) => n.id !== selectedNode.id);
+                if (otherNodes.length > 0 && !selectedInternalNodeId) {
+                  setSelectedInternalNodeId(otherNodes[0].id);
+                  setLinkTitle(otherNodes[0].data.label || '');
+                }
+                setShowLinkModal(true);
+              }}
+              title="Chèn liên kết (Nội bộ cùng tab / Web ngoài)"
               className="flex items-center gap-1 px-2 py-1 rounded bg-blue-500/10 text-blue-300 hover:bg-blue-500/20 text-xs font-medium border border-blue-500/30"
             >
               <LinkIcon className="w-3.5 h-3.5" />
@@ -1293,7 +1346,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* PREVIEW ONLY */}
           {viewMode === 'preview' && (
             <div className="flex-1 p-4 sm:p-5 overflow-y-auto select-text">
-              <MarkdownRenderer content={data.content || ''} attachments={attachments} onNavigate={onNavigate} />
+              <MarkdownRenderer
+                content={data.content || ''}
+                attachments={attachments}
+                onNavigate={onNavigate}
+                onNodeClick={handleInternalNodeClick}
+              />
             </div>
           )}
 
@@ -1315,21 +1373,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <Sparkles className="w-3 h-3 text-purple-400" />
                   <span>Xem trước trực tiếp</span>
                 </div>
-                <MarkdownRenderer content={data.content || ''} attachments={attachments} onNavigate={onNavigate} />
+                <MarkdownRenderer
+                  content={data.content || ''}
+                  attachments={attachments}
+                  onNavigate={onNavigate}
+                  onNodeClick={handleInternalNodeClick}
+                />
               </div>
             </div>
           )}
         </div>
       </aside>
 
-      {/* Mini Modal Chèn Link Google Docs / Web (Responsive) */}
+      {/* Mini Modal Chèn Liên Kết: Nội Bộ (Ở lại cùng tab) hoặc Web Ngoài */}
       {showLinkModal && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-[#181822] border border-[#2e2e3d] rounded-2xl w-full max-w-sm sm:max-w-md shadow-2xl p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div className="flex items-center gap-2">
-                <LinkIcon className="w-4 h-4 text-blue-400" />
-                <h3 className="text-sm font-bold text-white">Chèn liên kết Google Docs</h3>
+                <LinkIcon className="w-4 h-4 text-purple-400" />
+                <h3 className="text-sm font-bold text-white">Chèn liên kết</h3>
               </div>
               <button
                 onClick={() => setShowLinkModal(false)}
@@ -1339,52 +1402,204 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleInsertLink} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-zinc-400 mb-1">
-                  Tên hiển thị
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={linkTitle}
-                  onChange={(e) => setLinkTitle(e.target.value)}
-                  placeholder="Ví dụ: Google Docs Bài Giảng"
-                  className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2.5 text-base sm:text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-blue-500"
-                />
-              </div>
+            {/* Chuyển đổi Tab: Link Nội Bộ vs Link Web Ngoài */}
+            <div className="flex rounded-lg bg-[#121218] p-1 border border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setLinkModalTab('internal')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  linkModalTab === 'internal'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>Link Nội Bộ (Cùng tab)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLinkModalTab('external')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                  linkModalTab === 'external'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>Link Web Ngoài</span>
+              </button>
+            </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-zinc-400 mb-1">
-                  Đường dẫn (URL) *
-                </label>
-                <input
-                  type="url"
-                  required
-                  value={linkUrl}
-                  onChange={(e) => setLinkUrl(e.target.value)}
-                  placeholder="https://docs.google.com/..."
-                  className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2.5 text-base sm:text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-blue-500 font-mono"
-                />
-              </div>
+            {/* TAB 1: LIÊN KẾT NỘI BỘ (Ở LẠI CÙNG TAB) */}
+            {linkModalTab === 'internal' ? (
+              <form onSubmit={handleInsertInternalLink} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Chọn ô ghi chú muốn liên kết đến *
+                  </label>
+                  {allNodes.filter((n) => n.id !== selectedNode.id).length > 0 ? (
+                    <select
+                      value={selectedInternalNodeId}
+                      onChange={(e) => {
+                        setSelectedInternalNodeId(e.target.value);
+                        const found = allNodes.find((n) => n.id === e.target.value);
+                        if (found) {
+                          setLinkTitle(found.data.label || '');
+                        }
+                      }}
+                      className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 outline-none focus:border-purple-500"
+                    >
+                      <option value="">-- Chọn một ô ghi chú --</option>
+                      {allNodes
+                        .filter((n) => n.id !== selectedNode.id)
+                        .map((n) => (
+                          <option key={n.id} value={n.id}>
+                            {n.data.label || 'Chưa đặt tên'}
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-amber-400/80 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
+                      Chưa có ô ghi chú nào khác trên bản đồ. Bạn có thể tự gõ cú pháp [[Tên ô]] vào văn bản sau khi tạo ô mới!
+                    </p>
+                  )}
+                </div>
 
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowLinkModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white"
-                >
-                  Hủy
-                </button>
-                <button
-                  type="submit"
-                  disabled={!linkUrl.trim()}
-                  className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md shadow-blue-600/30"
-                >
-                  Chèn link
-                </button>
-              </div>
-            </form>
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Tên hiển thị (Tùy chọn)
+                  </label>
+                  <input
+                    type="text"
+                    value={linkTitle}
+                    onChange={(e) => setLinkTitle(e.target.value)}
+                    placeholder="Mặc định lấy theo tên ô ghi chú"
+                    className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                {/* Chọn định dạng cú pháp */}
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1.5">
+                    Định dạng cú pháp:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setInternalLinkSyntax('wiki')}
+                      className={`p-2 rounded-lg border text-left transition-all ${
+                        internalLinkSyntax === 'wiki'
+                          ? 'border-purple-500 bg-purple-500/15 text-purple-200'
+                          : 'border-zinc-800 bg-[#121218] text-zinc-400 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div className="font-bold">[[Wiki-link]]</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">Chuẩn Obsidian gọn gàng</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInternalLinkSyntax('markdown')}
+                      className={`p-2 rounded-lg border text-left transition-all ${
+                        internalLinkSyntax === 'markdown'
+                          ? 'border-purple-500 bg-purple-500/15 text-purple-200'
+                          : 'border-zinc-800 bg-[#121218] text-zinc-400 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div className="font-bold">[Tên](node:id)</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">Markdown định danh ID</div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Xem trước cú pháp */}
+                {selectedInternalNodeId && (
+                  <div className="bg-[#121218] border border-zinc-800/80 rounded-lg p-2.5">
+                    <div className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">
+                      Cú pháp sẽ chèn:
+                    </div>
+                    <code className="text-xs font-mono text-purple-300 break-all select-all">
+                      {(() => {
+                        const targetNode = allNodes.find((n) => n.id === selectedInternalNodeId);
+                        const targetLabel = targetNode?.data.label || selectedInternalNodeId;
+                        const display = linkTitle.trim();
+                        if (internalLinkSyntax === 'wiki') {
+                          return !display || display === targetLabel
+                            ? `[[${targetLabel}]]`
+                            : `[[${targetLabel}|${display}]]`;
+                        } else {
+                          return `[${display || targetLabel}](node:${selectedInternalNodeId})`;
+                        }
+                      })()}
+                    </code>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setShowLinkModal(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!selectedInternalNodeId}
+                    className="px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md shadow-purple-600/30 transition-colors"
+                  >
+                    Chèn link nội bộ
+                  </button>
+                </div>
+              </form>
+            ) : (
+              /* TAB 2: LIÊN KẾT NGOÀI (GOOGLE DOCS, WEB) */
+              <form onSubmit={handleInsertExternalLink} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Tên hiển thị
+                  </label>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={linkTitle}
+                    onChange={(e) => setLinkTitle(e.target.value)}
+                    placeholder="Ví dụ: Google Docs Bài Giảng"
+                    className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Đường dẫn (URL) *
+                  </label>
+                  <input
+                    type="url"
+                    required
+                    value={linkUrl}
+                    onChange={(e) => setLinkUrl(e.target.value)}
+                    placeholder="https://docs.google.com/... hoặc https://..."
+                    className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setShowLinkModal(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!linkUrl.trim()}
+                    className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition-colors"
+                  >
+                    Chèn link web ngoài
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
         </div>
       )}

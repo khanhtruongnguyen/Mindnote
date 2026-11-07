@@ -23,6 +23,18 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
   onNavigate,
   onNodeClick,
 }) => {
+  // Tiền xử lý nội dung để hỗ trợ cú pháp Wiki-link chuẩn Obsidian:
+  // [[Tên ô ghi chú]] -> [Tên ô ghi chú](node:Tên ô ghi chú)
+  // [[Tên ô ghi chú|Tên hiển thị]] -> [Tên hiển thị](node:Tên ô ghi chú)
+  const processedContent = useMemo(() => {
+    if (!content) return '';
+    return content.replace(/\[\[(.*?)(?:\|(.*?))?\]\]/g, (_match, target, alias) => {
+      const cleanTarget = (target || '').trim();
+      const cleanAlias = (alias || cleanTarget).trim();
+      return `[${cleanAlias}](node:${cleanTarget})`;
+    });
+  }, [content]);
+
   const components = useMemo(() => ({
     h1: ({ ...props }: React.ComponentPropsWithoutRef<'h1'>) => (
       <h1 className="text-xl font-bold text-white border-b border-zinc-700/60 pb-2 mb-3 mt-1" {...props} />
@@ -68,10 +80,24 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
       if (!href) return <span>{children}</span>;
 
       // Kiểm tra nếu là link web bên ngoài (bắt đầu bằng http://, https://, mailto:)
-      const isExternal =
+      let isExternal =
         href.startsWith('http://') ||
         href.startsWith('https://') ||
         href.startsWith('mailto:');
+
+      // Nếu link trỏ về URL của app (chứa ?note= hoặc ?map= hoặc cùng hostname) thì coi là link nội bộ (ở lại tab hiện tại)
+      if (isExternal && !href.startsWith('mailto:')) {
+        try {
+          const urlObj = new URL(href, window.location.origin);
+          const isSameHost = urlObj.hostname === window.location.hostname;
+          const hasNoteParam = urlObj.searchParams.has('note') || urlObj.searchParams.has('map');
+          if (isSameHost || hasNoteParam) {
+            isExternal = false;
+          }
+        } catch {
+          // ignore
+        }
+      }
 
       if (!isExternal) {
         // Link nội bộ đến ô ghi chú hoặc bản đồ (không bao giờ mở tab mới gây trang trắng)
@@ -86,15 +112,15 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
                 let targetMap: string | undefined;
 
                 if (href.startsWith('node:')) {
-                  targetId = href.replace('node:', '');
+                  targetId = decodeURIComponent(href.replace(/^node:/, ''));
                 } else if (href.startsWith('#')) {
-                  targetId = href.replace('#', '');
+                  targetId = decodeURIComponent(href.replace(/^#/, ''));
                 } else if (href.includes('?') && (href.includes('map=') || href.includes('note='))) {
                   const dummy = new URL(href, window.location.origin);
                   targetMap = dummy.searchParams.get('map') || undefined;
                   targetId = dummy.searchParams.get('note') || '';
                 } else {
-                  targetId = href;
+                  targetId = decodeURIComponent(href);
                 }
 
                 if (onNodeClick && targetId) {
@@ -112,7 +138,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
                 // Fallback
               }
             }}
-            title="Nhấp để xem ô ghi chú này trên bản đồ"
+            title="Nhấp để xem ô ghi chú này trên bản đồ (ở lại tab hiện tại)"
             className="inline-flex items-center gap-1.5 px-2.5 py-0.5 my-0.5 rounded-full bg-purple-500/20 hover:bg-purple-500/35 text-purple-200 hover:text-white border border-purple-500/40 text-xs font-medium cursor-pointer transition-colors shadow-sm select-none"
           >
             <Compass className="w-3.5 h-3.5 text-purple-400 shrink-0" />
@@ -202,7 +228,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
         urlTransform={URL_TRANSFORM}
         components={components}
       >
-        {content}
+        {processedContent}
       </ReactMarkdown>
     </div>
   );

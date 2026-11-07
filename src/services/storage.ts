@@ -180,11 +180,13 @@ export const StorageService = {
     return maps.map((map) => ({
       ...map,
       nodes: (map.nodes || []).map((node) => {
-        const rawData = (node.data || {}) as Record<string, unknown>;
-        const { attachments, onNavigate, onNodeClick, ...cleanData } = rawData;
+        const rawData = { ...((node.data || {}) as Record<string, unknown>) };
+        delete rawData.attachments;
+        delete rawData.onNavigate;
+        delete rawData.onNodeClick;
         return {
           ...node,
-          data: cleanData as any,
+          data: rawData as any,
         };
       }),
     }));
@@ -411,7 +413,7 @@ export const StorageService = {
       public: false,
       files: {
         'mindmap_notes.json': {
-          content: JSON.stringify(cleaned, null, 2),
+          content: JSON.stringify(cleaned),
         },
       },
     };

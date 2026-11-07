@@ -3,13 +3,14 @@ import {
   X,
   BookOpen,
   Bold,
-  Link,
   SquareCheck,
   Table,
   Sigma,
   BoxSelect,
   Check,
   Copy,
+  Compass,
+  Globe,
 } from 'lucide-react';
 
 interface SyntaxHandbookModalProps {
@@ -90,8 +91,32 @@ export const SyntaxHandbookModal: React.FC<SyntaxHandbookModalProps> = ({
       ],
     },
     {
-      title: '3. Chèn Liên Kết Tài Liệu (Google Docs, Drive, Web)',
-      icon: <Link className="w-4 h-4 text-blue-400" />,
+      title: '3. Liên Kết Nội Bộ (Chuyển Nhanh Giữa Các Ô Note - Cùng Tab, Chuẩn Obsidian)',
+      icon: <Compass className="w-4 h-4 text-purple-400" />,
+      items: [
+        {
+          name: 'Wiki-link chuẩn Obsidian (Khuyên dùng)',
+          syntax: '[[Tên ô ghi chú]]',
+          preview: '[[Giải Tích 1]] ➔ Nút la bàn tím dẫn thẳng đến ô Giải Tích 1',
+          description: 'Gõ 2 ngoặc vuông [[ và tên ô. Bấm vào lập tức nhảy đến ô đó trong cùng tab, không tải lại trang',
+        },
+        {
+          name: 'Wiki-link có tên hiển thị khác',
+          syntax: '[[Tên ô ghi chú|Tên bạn muốn hiển thị]]',
+          preview: '[[Giải Tích 1|Xem lại bài giảng]] ➔ Hiển thị chữ "Xem lại bài giảng"',
+          description: 'Dùng dấu gạch đứng | để tách giữa tên ô đích và tên hiển thị',
+        },
+        {
+          name: 'Markdown Link định danh ID',
+          syntax: '[Xem công thức](node:node-1738000000000)',
+          preview: '[Xem công thức](node:node-1738000000000)',
+          description: 'Định danh chính xác theo ID của ô, không sợ bị ảnh hưởng khi đổi tên ô ghi chú',
+        },
+      ],
+    },
+    {
+      title: '4. Chèn Liên Kết Web Ngoài (Google Docs, Drive, Web)',
+      icon: <Globe className="w-4 h-4 text-blue-400" />,
       items: [
         {
           name: 'Link tài liệu Google Docs',
@@ -108,7 +133,7 @@ export const SyntaxHandbookModal: React.FC<SyntaxHandbookModalProps> = ({
       ],
     },
     {
-      title: '4. Danh Sách & Danh Sách Việc Cần Làm (To-Do Checkbox)',
+      title: '5. Danh Sách & Danh Sách Việc Cần Làm (To-Do Checkbox)',
       icon: <SquareCheck className="w-4 h-4 text-emerald-400" />,
       items: [
         {
@@ -126,7 +151,7 @@ export const SyntaxHandbookModal: React.FC<SyntaxHandbookModalProps> = ({
       ],
     },
     {
-      title: '5. Bảng Biểu (Table)',
+      title: '6. Bảng Biểu (Table)',
       icon: <Table className="w-4 h-4 text-cyan-400" />,
       items: [
         {
@@ -138,7 +163,7 @@ export const SyntaxHandbookModal: React.FC<SyntaxHandbookModalProps> = ({
       ],
     },
     {
-      title: '6. Công Thức Toán & Khoa Học (LaTeX)',
+      title: '7. Công Thức Toán & Khoa Học (LaTeX)',
       icon: <Sigma className="w-4 h-4 text-rose-400" />,
       items: [
         {
