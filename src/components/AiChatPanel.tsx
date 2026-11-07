@@ -61,52 +61,10 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   const [autoApplyAgent, setAutoApplyAgent] = useState(false);
 
   // Multi-session state for this map
-  const [sessions, setSessions] = useState<ChatSession[]>(() => {
-    const loaded = StorageService.getChatSessions(activeMap.id);
-    if (loaded.length > 0) {
-      // Clean existing messages if any had Chinese telemetry
-      return loaded.map((sess) => ({
-        ...sess,
-        messages: sess.messages.map((m) => ({
-          ...m,
-          content: cleanAiOutput(m.content),
-        })),
-      }));
-    }
-
-    // Check legacy single-session storage
-    const legacyKey = `ai_chat_history_${activeMap.id}`;
-    const legacyRaw = localStorage.getItem(legacyKey);
-    if (legacyRaw) {
-      try {
-        const legacyMsgs: ChatMessage[] = JSON.parse(legacyRaw);
-        if (legacyMsgs.length > 0) {
-          const migrated: ChatSession = {
-            id: `session-${Date.now()}`,
-            mapId: activeMap.id,
-            title: legacyMsgs[0]?.content.slice(0, 30) || 'Cuộc trò chuyện trước',
-            messages: legacyMsgs.map((m) => ({
-              ...m,
-              content: cleanAiOutput(m.content),
-            })),
-            createdAt: legacyMsgs[0]?.createdAt || Date.now(),
-            updatedAt: Date.now(),
-          };
-          StorageService.saveChatSessions(activeMap.id, [migrated]);
-          return [migrated];
-        }
-      } catch {
-        // ignore
-      }
-    }
-
-    return [];
-  });
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
 
   // Current active session ID
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(() => {
-    return sessions[0]?.id || null;
-  });
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   // UI state
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
@@ -180,16 +138,29 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   const currentSession = sessions.find((s) => s.id === activeSessionId) || null;
   const messages = useMemo(() => currentSession?.messages || [], [currentSession?.messages]);
 
-  // When activeMap changes, reload sessions for that map
+  // When activeMap changes, reload sessions for that map from IndexedDB
   useEffect(() => {
-    const loaded = StorageService.getChatSessions(activeMap.id);
-    setSessions(loaded);
-    setActiveSessionId(loaded[0]?.id || null);
+    let isMounted = true;
+    StorageService.getChatSessions(activeMap.id).then((loaded) => {
+      if (!isMounted) return;
+      const cleaned = (loaded || []).map((sess) => ({
+        ...sess,
+        messages: (sess.messages || []).map((m) => ({
+          ...m,
+          content: cleanAiOutput(m.content),
+        })),
+      }));
+      setSessions(cleaned);
+      setActiveSessionId((prev) => (cleaned.some((s) => s.id === prev) ? prev : cleaned[0]?.id || null));
+    });
+    return () => {
+      isMounted = false;
+    };
   }, [activeMap.id]);
 
-  // Auto-save sessions to LocalStorage if history is enabled
+  // Auto-save sessions to IndexedDB if history is enabled
   useEffect(() => {
-    if (isHistoryEnabled) {
+    if (isHistoryEnabled && sessions.length > 0) {
       StorageService.saveChatSessions(activeMap.id, sessions);
     }
   }, [sessions, activeMap.id, isHistoryEnabled]);
@@ -262,12 +233,12 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   };
 
   // Delete a specific session
-  const handleDeleteSession = (sessionId: string, e: React.MouseEvent) => {
+  const handleDeleteSession = async (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirm('Xóa đoạn chat này khỏi lịch sử?')) {
       const nextSessions = sessions.filter((s) => s.id !== sessionId);
       setSessions(nextSessions);
-      StorageService.deleteChatSession(activeMap.id, sessionId);
+      await StorageService.deleteChatSession(activeMap.id, sessionId);
       if (activeSessionId === sessionId) {
         setActiveSessionId(nextSessions[0]?.id || null);
       }
@@ -275,24 +246,24 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   };
 
   // Clear all sessions
-  const handleClearAllHistory = () => {
+  const handleClearAllHistory = async () => {
     if (confirm('Bạn có chắc muốn xóa TOÀN BỘ lịch sử đoạn chat của bản đồ này?')) {
       setSessions([]);
       setActiveSessionId(null);
-      StorageService.clearAllChatSessions(activeMap.id);
+      await StorageService.clearAllChatSessions(activeMap.id);
       setIsHistoryDrawerOpen(false);
     }
   };
 
   // Toggle Save History mode
-  const handleToggleHistoryMode = () => {
+  const handleToggleHistoryMode = async () => {
     const nextVal = !isHistoryEnabled;
     onUpdateSettings?.({ saveChatHistory: nextVal });
     if (!nextVal) {
       if (confirm('Bạn đang tắt chế độ lưu lịch sử. Bạn có muốn xóa luôn các đoạn chat đã lưu trước đó không?')) {
         setSessions([]);
         setActiveSessionId(null);
-        StorageService.clearAllChatSessions(activeMap.id);
+        await StorageService.clearAllChatSessions(activeMap.id);
       }
     }
   };

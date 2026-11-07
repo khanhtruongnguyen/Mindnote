@@ -1,8 +1,17 @@
 import type { MapData, AppSettings, ChatSession } from '../types';
+import {
+  openDB,
+  idbGetAllMaps,
+  idbSaveAllMaps,
+  idbGetChatSessions,
+  idbSaveChatSessions,
+  idbDeleteChatSessions,
+} from './db';
 
 const STORAGE_MAPS_KEY = 'infinite_notes_maps_v1';
 const STORAGE_SETTINGS_KEY = 'infinite_notes_settings_v1';
 const STORAGE_CHAT_SESSIONS_PREFIX = 'infinite_notes_chat_sessions_v1_';
+const MIGRATED_FLAG = 'mindnote_migrated_idb_v1';
 
 export const DEFAULT_STARTER_MAP: MapData = {
   id: 'starter-calculus-1',
@@ -166,30 +175,126 @@ export const DEFAULT_AI_CONFIG = {
 };
 
 export const StorageService = {
-  getMaps(): MapData[] {
+  cleanMapsData(maps: MapData[]): MapData[] {
+    if (!Array.isArray(maps)) return [];
+    return maps.map((map) => ({
+      ...map,
+      nodes: (map.nodes || []).map((node) => {
+        const rawData = (node.data || {}) as Record<string, unknown>;
+        const { attachments, onNavigate, onNodeClick, ...cleanData } = rawData;
+        return {
+          ...node,
+          data: cleanData as any,
+        };
+      }),
+    }));
+  },
+
+  async init(): Promise<void> {
     try {
-      const data = localStorage.getItem(STORAGE_MAPS_KEY);
-      if (!data) {
-        this.saveMaps([DEFAULT_STARTER_MAP]);
-        return [DEFAULT_STARTER_MAP];
+      await openDB();
+
+      // Check if migration is needed
+      const existingMaps = await idbGetAllMaps();
+      if (!existingMaps || existingMaps.length === 0) {
+        // Check localStorage for existing maps
+        const localData = localStorage.getItem(STORAGE_MAPS_KEY);
+        if (localData) {
+          try {
+            const parsed = JSON.parse(localData);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              const cleaned = this.cleanMapsData(parsed);
+              await idbSaveAllMaps(cleaned);
+              console.log(`[Storage] Đã tự động chuyển đổi ${cleaned.length} bản đồ từ localStorage sang IndexedDB.`);
+            }
+          } catch (e) {
+            console.error('Lỗi khi đọc bản đồ từ localStorage để chuyển đổi sang IndexedDB:', e);
+          }
+        } else {
+          // Khởi tạo bản đồ mặc định ban đầu nếu là người dùng mới
+          await idbSaveAllMaps([DEFAULT_STARTER_MAP]);
+        }
+
+        // Tự động chuyển đổi các phiên Chat AI cũ từ localStorage sang IndexedDB
+        try {
+          const keysToMigrate: string[] = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && (k.startsWith(STORAGE_CHAT_SESSIONS_PREFIX) || k.startsWith('ai_chat_history_'))) {
+              keysToMigrate.push(k);
+            }
+          }
+
+          for (const k of keysToMigrate) {
+            const raw = localStorage.getItem(k);
+            if (!raw) continue;
+            const mapId = k.replace(STORAGE_CHAT_SESSIONS_PREFIX, '').replace('ai_chat_history_', '');
+            try {
+              const parsed = JSON.parse(raw);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                if (parsed[0] && !('messages' in parsed[0])) {
+                  const sess: ChatSession = {
+                    id: `session-${Date.now()}`,
+                    mapId,
+                    title: (parsed[0] as any)?.content?.slice(0, 30) || 'Cuộc trò chuyện cũ',
+                    messages: parsed,
+                    createdAt: Date.now(),
+                    updatedAt: Date.now(),
+                  };
+                  await idbSaveChatSessions(mapId, [sess]);
+                } else {
+                  await idbSaveChatSessions(mapId, parsed);
+                }
+              }
+            } catch {
+              // ignore
+            }
+          }
+        } catch (e) {
+          console.warn('Lỗi khi chuyển đổi phiên Chat AI sang IndexedDB:', e);
+        }
+
+        // Đánh dấu đã chuyển đổi và giải phóng dung lượng localStorage
+        localStorage.setItem(MIGRATED_FLAG, 'true');
+        localStorage.removeItem(STORAGE_MAPS_KEY);
       }
-      const parsed = JSON.parse(data);
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        this.saveMaps([DEFAULT_STARTER_MAP]);
-        return [DEFAULT_STARTER_MAP];
-      }
-      return parsed;
     } catch (e) {
-      console.error('Failed to load maps from local storage:', e);
+      console.error('StorageService.init error:', e);
+    }
+  },
+
+  async getMaps(): Promise<MapData[]> {
+    try {
+      const fromDb = await idbGetAllMaps();
+      if (fromDb && fromDb.length > 0) {
+        return this.cleanMapsData(fromDb);
+      }
+
+      // Dự phòng đọc từ localStorage nếu IndexedDB chưa sẵn sàng hoặc rỗng
+      const localData = localStorage.getItem(STORAGE_MAPS_KEY);
+      if (localData) {
+        const parsed = JSON.parse(localData);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return this.cleanMapsData(parsed);
+        }
+      }
+      return [DEFAULT_STARTER_MAP];
+    } catch (e) {
+      console.error('Lỗi khi nạp bản đồ:', e);
       return [DEFAULT_STARTER_MAP];
     }
   },
 
-  saveMaps(maps: MapData[]): void {
+  async saveMaps(maps: MapData[]): Promise<void> {
     try {
-      localStorage.setItem(STORAGE_MAPS_KEY, JSON.stringify(maps));
+      const cleaned = this.cleanMapsData(maps);
+      const ok = await idbSaveAllMaps(cleaned);
+      if (!ok) {
+        // Dự phòng ghi vào localStorage nếu IndexedDB gặp lỗi
+        localStorage.setItem(STORAGE_MAPS_KEY, JSON.stringify(cleaned));
+      }
     } catch (e) {
-      console.error('Failed to save maps to local storage:', e);
+      console.error('Lỗi khi lưu bản đồ:', e);
     }
   },
 
@@ -223,8 +328,13 @@ export const StorageService = {
     }
   },
 
-  getChatSessions(mapId: string): ChatSession[] {
+  async getChatSessions(mapId: string): Promise<ChatSession[]> {
     try {
+      const fromDb = await idbGetChatSessions(mapId);
+      if (fromDb !== null) {
+        return fromDb;
+      }
+
       const raw = localStorage.getItem(`${STORAGE_CHAT_SESSIONS_PREFIX}${mapId}`);
       if (!raw) return [];
       const parsed = JSON.parse(raw);
@@ -234,21 +344,26 @@ export const StorageService = {
     }
   },
 
-  saveChatSessions(mapId: string, sessions: ChatSession[]): void {
+  async saveChatSessions(mapId: string, sessions: ChatSession[]): Promise<void> {
     try {
-      localStorage.setItem(`${STORAGE_CHAT_SESSIONS_PREFIX}${mapId}`, JSON.stringify(sessions));
+      const ok = await idbSaveChatSessions(mapId, sessions);
+      if (!ok) {
+        localStorage.setItem(`${STORAGE_CHAT_SESSIONS_PREFIX}${mapId}`, JSON.stringify(sessions));
+      }
     } catch (e) {
       console.error('Failed to save chat sessions:', e);
     }
   },
 
-  deleteChatSession(mapId: string, sessionId: string): void {
-    const sessions = this.getChatSessions(mapId).filter((s) => s.id !== sessionId);
-    this.saveChatSessions(mapId, sessions);
+  async deleteChatSession(mapId: string, sessionId: string): Promise<void> {
+    const sessions = await this.getChatSessions(mapId);
+    const filtered = sessions.filter((s) => s.id !== sessionId);
+    await this.saveChatSessions(mapId, filtered);
   },
 
-  clearAllChatSessions(mapId: string): void {
+  async clearAllChatSessions(mapId: string): Promise<void> {
     try {
+      await idbDeleteChatSessions(mapId);
       localStorage.removeItem(`${STORAGE_CHAT_SESSIONS_PREFIX}${mapId}`);
     } catch (e) {
       console.error('Failed to clear chat sessions:', e);
@@ -256,7 +371,8 @@ export const StorageService = {
   },
 
   exportBackup(maps: MapData[]) {
-    const jsonStr = JSON.stringify(maps, null, 2);
+    const cleaned = this.cleanMapsData(maps);
+    const jsonStr = JSON.stringify(cleaned, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -274,7 +390,7 @@ export const StorageService = {
           const content = e.target?.result as string;
           const parsed = JSON.parse(content);
           if (Array.isArray(parsed)) {
-            resolve(parsed);
+            resolve(this.cleanMapsData(parsed));
           } else {
             reject(new Error('Định dạng file sao lưu không hợp lệ.'));
           }
@@ -289,12 +405,13 @@ export const StorageService = {
 
   // GitHub Gist Integration
   async syncToGist(token: string, gistId: string | null, maps: MapData[]): Promise<{ gistId: string; url: string }> {
+    const cleaned = this.cleanMapsData(maps);
     const payload = {
       description: 'MindMap Infinite Notes Backup',
       public: false,
       files: {
         'mindmap_notes.json': {
-          content: JSON.stringify(maps, null, 2),
+          content: JSON.stringify(cleaned, null, 2),
         },
       },
     };
@@ -338,15 +455,29 @@ export const StorageService = {
 
     const data = await res.json();
     const file = data.files?.['mindmap_notes.json'];
-    if (!file || !file.content) {
+    if (!file) {
       throw new Error('Không tìm thấy file mindmap_notes.json trong Gist.');
     }
 
-    const parsed = JSON.parse(file.content);
+    let rawContent = file.content;
+    // GitHub Gist API tự động truncate (cắt ngắn) content khi file > 1MB hoặc > 300 dòng.
+    // Khi bị truncated, cần tải nội dung đầy đủ từ file.raw_url (không đính kèm Authorization header)
+    if (file.truncated || !rawContent) {
+      if (!file.raw_url) {
+        throw new Error('Dữ liệu trên GitHub Gist bị cắt ngắn nhưng không tìm thấy liên kết tải file gốc (raw_url).');
+      }
+      const rawRes = await fetch(file.raw_url);
+      if (!rawRes.ok) {
+        throw new Error(`Không thể tải nội dung đầy đủ từ Gist (Status ${rawRes.status})`);
+      }
+      rawContent = await rawRes.text();
+    }
+
+    const parsed = JSON.parse(rawContent);
     if (!Array.isArray(parsed)) {
       throw new Error('Dữ liệu Gist không đúng định dạng MapData[].');
     }
 
-    return parsed;
+    return this.cleanMapsData(parsed);
   },
 };

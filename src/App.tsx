@@ -18,11 +18,12 @@ import confetti from 'canvas-confetti';
 
 export function App() {
   const { isMobile, preference, changePreference } = useDeviceMode();
-  const [maps, setMaps] = useState<MapData[]>(() => StorageService.getMaps());
+  const [isStorageReady, setIsStorageReady] = useState(false);
+  const [maps, setMaps] = useState<MapData[]>([]);
   const [settings, setSettings] = useState(() => StorageService.getSettings());
   const [activeMapId, setActiveMapId] = useState<string>(() => {
     const saved = StorageService.getSettings().activeMapId;
-    return maps.some((m) => m.id === saved) ? saved : maps[0]?.id || DEFAULT_STARTER_MAP.id;
+    return saved || DEFAULT_STARTER_MAP.id;
   });
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -36,6 +37,55 @@ export function App() {
   const [isAiSettingsOpen, setIsAiSettingsOpen] = useState(false);
   const [isConnectModalOpen, setIsConnectModalOpen] = useState(false);
   const [isContextModalOpen, setIsContextModalOpen] = useState(false);
+
+  // Khởi tạo IndexedDB và nạp dữ liệu bản đồ
+  useEffect(() => {
+    let isMounted = true;
+
+    StorageService.init()
+      .then(async () => {
+        const loadedMaps = await StorageService.getMaps();
+        if (!isMounted) return;
+
+        setMaps(loadedMaps);
+
+        // Xử lý deep link URL (?map=xxx&note=yyy) hoặc activeMapId đã lưu
+        const params = new URLSearchParams(window.location.search);
+        const paramMap = params.get('map');
+        const paramNote = params.get('note');
+
+        let targetMapId = loadedMaps[0]?.id || DEFAULT_STARTER_MAP.id;
+
+        if (paramMap && loadedMaps.some((m) => m.id === paramMap)) {
+          targetMapId = paramMap;
+        } else {
+          const savedActiveId = StorageService.getSettings().activeMapId;
+          if (savedActiveId && loadedMaps.some((m) => m.id === savedActiveId)) {
+            targetMapId = savedActiveId;
+          }
+        }
+
+        setActiveMapId(targetMapId);
+
+        if (paramNote) {
+          const currentMap = loadedMaps.find((m) => m.id === targetMapId);
+          if (currentMap?.nodes.some((n) => n.id === paramNote)) {
+            setSelectedNodeId(paramNote);
+            setFocusNodeId(paramNote);
+          }
+        }
+
+        setIsStorageReady(true);
+      })
+      .catch((err) => {
+        console.error('Lỗi khi nạp dữ liệu IndexedDB:', err);
+        if (isMounted) setIsStorageReady(true);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Active Map reference
   const activeMap = useMemo(() => {
@@ -80,13 +130,14 @@ export function App() {
     [activeMap.attachments, handleUpdateCurrentMap]
   );
 
-  // Auto-save maps to local storage (Debounced 300ms de tranh nghen main UI thread)
+  // Auto-save maps to IndexedDB (Debounced 300ms)
   useEffect(() => {
+    if (!isStorageReady || maps.length === 0) return;
     const timer = setTimeout(() => {
       StorageService.saveMaps(maps);
     }, 300);
     return () => clearTimeout(timer);
-  }, [maps]);
+  }, [maps, isStorageReady]);
 
   // Auto-save settings (Debounced 300ms)
   useEffect(() => {
@@ -95,40 +146,6 @@ export function App() {
     }, 300);
     return () => clearTimeout(timer);
   }, [settings, activeMapId]);
-
-  // Đọc Deep Link từ URL khi mới mở ứng dụng (?map=xxx&note=yyy)
-  useEffect(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const paramMap = params.get('map');
-      const paramNote = params.get('note');
-
-      if (paramMap) {
-        const found = maps.find((m) => m.id === paramMap);
-        if (found) {
-          setActiveMapId(found.id);
-          if (paramNote && found.nodes.some((n) => n.id === paramNote)) {
-            setSelectedNodeId(paramNote);
-            setFocusNodeId(paramNote);
-          }
-          return;
-        }
-      }
-
-      if (paramNote) {
-        for (const m of maps) {
-          if (m.nodes.some((n) => n.id === paramNote)) {
-            setActiveMapId(m.id);
-            setSelectedNodeId(paramNote);
-            setFocusNodeId(paramNote);
-            break;
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Failed to parse URL deep link params:', e);
-    }
-  }, []);
 
   // Đồng bộ URL theo thời gian thực (để người dùng có thể copy luôn từ thanh URL trình duyệt)
   useEffect(() => {
@@ -623,6 +640,15 @@ export function App() {
     }
   };
 
+  if (!isStorageReady) {
+    return (
+      <div className="w-screen h-screen bg-[#121215] flex flex-col items-center justify-center gap-3 select-none">
+        <div className="w-9 h-9 border-2 border-purple-500/20 border-t-purple-500 rounded-full animate-spin" />
+        <div className="text-xs font-medium text-zinc-400 tracking-wide">Đang nạp không gian ghi chú...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="w-screen h-screen bg-[#121215] text-zinc-100 flex flex-col relative overflow-hidden font-sans">
       {/* Top Obsidian Header */}
@@ -705,7 +731,10 @@ export function App() {
         onMapsLoaded={(loadedMaps) => {
           setMaps(loadedMaps);
           if (loadedMaps.length > 0) {
-            setActiveMapId(loadedMaps[0].id);
+            const currentStillExists = loadedMaps.some((m) => m.id === activeMapId);
+            if (!currentStillExists) {
+              setActiveMapId(loadedMaps[0].id);
+            }
             setSelectedNodeId(null);
           }
         }}

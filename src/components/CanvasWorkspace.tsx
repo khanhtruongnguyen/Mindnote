@@ -137,6 +137,19 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     );
   }, [mapData.id, mapData.edges, handleDeleteEdge, setEdges]);
 
+  // Clean runtime-only properties (attachments, callbacks) before persisting nodes
+  const sanitizeNodes = useCallback((currentNodes: unknown[]): CustomNode[] => {
+    return currentNodes.map((n) => {
+      const node = n as CustomNode;
+      const rawData = (node.data || {}) as Record<string, unknown>;
+      const { attachments, onNavigate, onNodeClick, ...cleanData } = rawData;
+      return {
+        ...node,
+        data: cleanData as any,
+      };
+    });
+  }, []);
+
   // Propagate nodes changes to local React Flow state; ONLY notify parent on structural changes (e.g. deletion)
   const handleNodesChange = useCallback(
     (changes: Parameters<typeof onNodesChange>[0]) => {
@@ -144,21 +157,21 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
       const hasStructuralChange = changes.some((c) => c.type === 'remove');
       if (hasStructuralChange) {
         setNodes((currentNodes) => {
-          onUpdateMap({ nodes: currentNodes as CustomNode[] });
+          onUpdateMap({ nodes: sanitizeNodes(currentNodes) });
           return currentNodes;
         });
       }
     },
-    [onNodesChange, onUpdateMap, setNodes]
+    [onNodesChange, onUpdateMap, setNodes, sanitizeNodes]
   );
 
   // Sync node positions to parent state ONLY when user finishes dragging (Mouse up / Touch release)
   const handleNodeDragStop = useCallback(() => {
     setNodes((currentNodes) => {
-      onUpdateMap({ nodes: currentNodes as CustomNode[] });
+      onUpdateMap({ nodes: sanitizeNodes(currentNodes) });
       return currentNodes;
     });
-  }, [onUpdateMap, setNodes]);
+  }, [onUpdateMap, setNodes, sanitizeNodes]);
 
   // Propagate edges changes to parent
   const handleEdgesChange = useCallback(
