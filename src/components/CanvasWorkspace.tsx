@@ -33,6 +33,8 @@ interface CanvasWorkspaceProps {
   onAddNewNodeCenter: () => void;
 }
 
+const EMPTY_ATTACHMENTS: Record<string, string> = {};
+
 export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
   mapData,
   isMobile = false,
@@ -72,13 +74,14 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
 
   // Format nodes with selected flag, zIndex elevation, and attachments
   const formattedNodes = useMemo(() => {
+    const currentAttachments = mapData.attachments || EMPTY_ATTACHMENTS;
     return mapData.nodes.map((node) => ({
       ...node,
       selected: node.id === selectedNodeId,
       zIndex: node.id === selectedNodeId ? 9999 : (node.data.shape === 'full' ? 50 : 1),
       data: {
         ...node.data,
-        attachments: mapData.attachments || {},
+        attachments: currentAttachments,
       },
     }));
   }, [mapData.nodes, selectedNodeId, mapData.attachments]);
@@ -88,6 +91,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
 
   // Sync internal state with props when mapData changes
   React.useEffect(() => {
+    const currentAttachments = mapData.attachments || EMPTY_ATTACHMENTS;
     setNodes(
       mapData.nodes.map((node) => ({
         ...node,
@@ -95,7 +99,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         zIndex: node.id === selectedNodeId ? 9999 : (node.data.shape === 'full' ? 50 : 1),
         data: {
           ...node.data,
-          attachments: mapData.attachments || {},
+          attachments: currentAttachments,
         },
       }))
     );
@@ -114,19 +118,28 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     );
   }, [mapData.id, mapData.edges, handleDeleteEdge, setEdges]);
 
-  // Propagate nodes changes to parent
+  // Propagate nodes changes to local React Flow state; ONLY notify parent on structural changes (e.g. deletion)
   const handleNodesChange = useCallback(
     (changes: Parameters<typeof onNodesChange>[0]) => {
       onNodesChange(changes);
-      setTimeout(() => {
+      const hasStructuralChange = changes.some((c) => c.type === 'remove');
+      if (hasStructuralChange) {
         setNodes((currentNodes) => {
           onUpdateMap({ nodes: currentNodes as CustomNode[] });
           return currentNodes;
         });
-      }, 0);
+      }
     },
     [onNodesChange, onUpdateMap, setNodes]
   );
+
+  // Sync node positions to parent state ONLY when user finishes dragging (Mouse up / Touch release)
+  const handleNodeDragStop = useCallback(() => {
+    setNodes((currentNodes) => {
+      onUpdateMap({ nodes: currentNodes as CustomNode[] });
+      return currentNodes;
+    });
+  }, [onUpdateMap, setNodes]);
 
   // Propagate edges changes to parent
   const handleEdgesChange = useCallback(
@@ -224,6 +237,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         edges={edges}
         elevateNodesOnSelect={true}
         onNodesChange={handleNodesChange}
+        onNodeDragStop={handleNodeDragStop}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
         onNodeClick={handleNodeClick}

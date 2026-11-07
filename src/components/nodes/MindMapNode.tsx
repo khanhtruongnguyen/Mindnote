@@ -15,7 +15,7 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
   const hasImage = nodeData.content?.includes('![');
 
   return (
-    <div className={`relative group ${selected ? 'z-[9999]' : ''}`}>
+    <div className={`relative group ${selected ? 'z-[9999]' : ''} will-change-transform`}>
       {/* 4 Handles for connecting edges */}
       <Handle
         type="target"
@@ -89,9 +89,9 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
       {/* Card shape */}
       {shape === 'card' && (
         <div
-          className={`flex flex-col gap-1.5 p-3 rounded-xl border backdrop-blur-md cursor-pointer transition-all duration-200 min-w-[160px] max-w-[220px] select-none ${
-            colorScheme.bg
-          } ${colorScheme.border} ${
+          className={`flex flex-col gap-1.5 p-3 rounded-xl border bg-[#161622] cursor-pointer transition-colors duration-150 min-w-[160px] max-w-[220px] select-none ${
+            colorScheme.border
+          } ${
             selected
               ? `ring-2 ring-purple-400/90 ring-offset-2 ring-offset-[#121215] ${colorScheme.glow}`
               : 'hover:border-zinc-500 shadow-xl shadow-black/40'
@@ -111,19 +111,19 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
         </div>
       )}
 
-      {/* Full Note directly on Canvas mode (Hiển thị toàn bộ ghi chú trên Map) */}
+      {/* Full Note directly on Canvas mode (Hiển thị toàn bộ ghi chú trên Map - Tối ưu 60FPS) */}
       {shape === 'full' && (
         <div
-          className={`flex flex-col rounded-2xl border backdrop-blur-md cursor-pointer transition-all duration-200 select-none w-[320px] sm:w-[420px] max-h-[480px] shadow-2xl ${
-            colorScheme.bg
-          } ${colorScheme.border} ${
+          className={`flex flex-col rounded-2xl border bg-[#151520] cursor-pointer transition-colors duration-150 select-none w-[320px] sm:w-[420px] max-h-[480px] shadow-2xl shadow-black/80 ${
+            colorScheme.border
+          } ${
             selected
               ? `ring-2 ring-purple-400 ring-offset-2 ring-offset-[#121215] ${colorScheme.glow} shadow-purple-500/20`
-              : 'hover:border-zinc-500 shadow-black/60'
+              : 'hover:border-zinc-500'
           }`}
         >
           {/* Header of Full Note */}
-          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-white/10 bg-black/20 shrink-0">
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-zinc-800/80 bg-[#12121a] rounded-t-2xl shrink-0">
             <div className="flex items-center gap-2 min-w-0">
               <span className={`w-2.5 h-2.5 rounded-full ${colorScheme.dot} shrink-0 shadow-sm`} />
               <span className="text-xs font-bold text-zinc-100 truncate">
@@ -133,7 +133,7 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
             <div className="flex items-center gap-1.5 shrink-0 opacity-70">
               {hasFormula && <Sigma className="w-3.5 h-3.5 text-cyan-400" />}
               {hasImage && <ImageIcon className="w-3.5 h-3.5 text-emerald-400" />}
-              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-white/10 text-zinc-300">
+              <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-300 border border-zinc-700/50">
                 Toàn bộ
               </span>
             </div>
