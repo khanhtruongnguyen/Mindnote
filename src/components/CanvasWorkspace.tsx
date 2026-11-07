@@ -38,27 +38,13 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
   isMobile = false,
   onUpdateMap,
   selectedNodeId,
-  focusNodeId,
+  focusNodeId: _focusNodeId,
   onSelectNode,
   onDoubleClickedCanvas,
   onAddNewNodeCenter,
 }) => {
-  const { screenToFlowPosition, setCenter } = useReactFlow();
+  const { screenToFlowPosition } = useReactFlow();
   const [showMiniMap, setShowMiniMap] = useState(false); // Hide by default on mobile, show via toggle
-
-  // Automatically center view when focusNodeId or selectedNodeId changes
-  React.useEffect(() => {
-    const targetId = focusNodeId || selectedNodeId;
-    if (!targetId) return;
-    const targetNode = mapData.nodes.find((n) => n.id === targetId);
-    if (targetNode) {
-      const offsetX = isMobile ? 0 : -80;
-      setCenter(targetNode.position.x + 80 + offsetX, targetNode.position.y + 30, {
-        zoom: 1.15,
-        duration: 750,
-      });
-    }
-  }, [focusNodeId, selectedNodeId, mapData.nodes, setCenter, isMobile]);
 
   const nodeTypes = useMemo(() => ({ mindmap: MindMapNode }), []);
   const edgeTypes = useMemo(() => ({ custom: CustomEdge }), []);

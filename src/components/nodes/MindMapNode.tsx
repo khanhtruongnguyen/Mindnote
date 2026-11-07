@@ -15,7 +15,7 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
   const hasImage = nodeData.content?.includes('![');
 
   return (
-    <div className={`relative group transition-transform duration-150 ${selected ? 'z-[9999]' : ''}`}>
+    <div className={`relative group ${selected ? 'z-[9999]' : ''}`}>
       {/* 4 Handles for connecting edges */}
       <Handle
         type="target"
@@ -45,12 +45,12 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
       {/* Circle / Dot shape */}
       {shape === 'circle' && (
         <div
-          className={`flex items-center justify-center w-10 h-10 rounded-full border backdrop-blur-md cursor-pointer transition-all duration-200 ${
+          className={`flex items-center justify-center w-10 h-10 rounded-full border backdrop-blur-md cursor-pointer transition-colors duration-150 ${
             colorScheme.bg
           } ${colorScheme.border} ${
             selected
-              ? `ring-2 ring-purple-400 ring-offset-2 ring-offset-[#121215] ${colorScheme.glow} scale-110`
-              : 'hover:scale-105 shadow-md'
+              ? `ring-2 ring-purple-400 ring-offset-2 ring-offset-[#121215] ${colorScheme.glow}`
+              : 'shadow-md'
           }`}
         >
           <div className={`w-3 h-3 rounded-full ${colorScheme.dot} shadow-sm animate-pulse`} />
@@ -63,12 +63,12 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
       {/* Pill Capsule shape (Obsidian favorite) */}
       {shape === 'pill' && (
         <div
-          className={`flex items-center gap-2.5 px-3.5 py-2 rounded-full border backdrop-blur-md cursor-pointer transition-all duration-200 select-none ${
+          className={`flex items-center gap-2.5 px-3.5 py-2 rounded-full border backdrop-blur-md cursor-pointer transition-colors duration-150 select-none ${
             colorScheme.bg
           } ${colorScheme.border} ${
             selected
-              ? `ring-2 ring-purple-400/90 ring-offset-2 ring-offset-[#121215] ${colorScheme.glow} scale-[1.02]`
-              : 'hover:border-zinc-500 hover:scale-[1.01] shadow-lg shadow-black/40'
+              ? `ring-2 ring-purple-400/90 ring-offset-2 ring-offset-[#121215] ${colorScheme.glow}`
+              : 'hover:border-zinc-500 shadow-lg shadow-black/40'
           }`}
         >
           <span className={`w-2.5 h-2.5 rounded-full ${colorScheme.dot} shrink-0 shadow-sm`} />
