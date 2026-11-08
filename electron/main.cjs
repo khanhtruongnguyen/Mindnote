@@ -418,8 +418,29 @@ ipcMain.handle('desktop:open-gdrive-folder', async () => {
   return false;
 });
 
-// 10.3 Xuất nhanh sang Google Drive (Tự động lưu kèm ngày giờ đến từng giây)
-ipcMain.handle('desktop:export-to-gdrive', async (_event, { map, maps, isFullVault }) => {
+// Helper chuyển đổi ảnh mindnote-asset:// trong 1 map sang Base64 để tương thích Web/Mobile
+function embedMapAttachmentsToBase64(map) {
+  const preparedMap = JSON.parse(JSON.stringify(map));
+  if (preparedMap.attachments) {
+    for (const [id, uri] of Object.entries(preparedMap.attachments)) {
+      if (typeof uri === 'string' && uri.startsWith('mindnote-asset://')) {
+        let cleanFileName = uri.replace(/^mindnote-asset:\/\//, '');
+        cleanFileName = decodeURIComponent(cleanFileName.split('?')[0].split('#')[0]).replace(/^\/+/, '');
+        const assetPath = path.join(ATTACHMENTS_DIR, cleanFileName);
+        if (fs.existsSync(assetPath)) {
+          const ext = path.extname(cleanFileName).replace('.', '') || 'png';
+          const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
+          const buffer = fs.readFileSync(assetPath);
+          preparedMap.attachments[id] = `data:${mimeType};base64,${buffer.toString('base64')}`;
+        }
+      }
+    }
+  }
+  return preparedMap;
+}
+
+// 10.3 Xuất nhanh sang Google Drive (Hỗ trợ ghi đè 1-Click gọn gàng hoặc lưu kèm ngày giờ)
+ipcMain.handle('desktop:export-to-gdrive', async (_event, { map, maps, isFullVault, keepSingleFile }) => {
   try {
     const mindnoteDir = getGoogleDriveMindnoteDir();
     if (!mindnoteDir) {
@@ -427,11 +448,13 @@ ipcMain.handle('desktop:export-to-gdrive', async (_event, { map, maps, isFullVau
     }
 
     const timestamp = formatTimestampToSeconds();
+    const useSingleCleanFile = keepSingleFile !== false; // Mặc định ghi đè 1 file chuẩn theo tên để không tạo rác
 
     if (isFullVault && Array.isArray(maps)) {
-      const fileName = `mindnote_vault_${timestamp}.json`;
+      const preparedMaps = maps.map((m) => embedMapAttachmentsToBase64(m));
+      const fileName = useSingleCleanFile ? 'mindnote_vault_backup.json' : `mindnote_vault_${timestamp}.json`;
       const filePath = path.join(mindnoteDir, fileName);
-      fs.writeFileSync(filePath, JSON.stringify(maps, null, 2), 'utf8');
+      fs.writeFileSync(filePath, JSON.stringify(preparedMaps, null, 2), 'utf8');
       return {
         success: true,
         fileName,
@@ -440,26 +463,9 @@ ipcMain.handle('desktop:export-to-gdrive', async (_event, { map, maps, isFullVau
         isFullVault: true,
       };
     } else if (map) {
-      // Xuất 1 map: Chuyển đổi các ảnh mindnote-asset:// thành Base64 để mang lên Web/iPhone mở được ngay
-      const preparedMap = JSON.parse(JSON.stringify(map));
-      if (preparedMap.attachments) {
-        for (const [id, uri] of Object.entries(preparedMap.attachments)) {
-          if (typeof uri === 'string' && uri.startsWith('mindnote-asset://')) {
-            let cleanFileName = uri.replace(/^mindnote-asset:\/\//, '');
-            cleanFileName = decodeURIComponent(cleanFileName.split('?')[0].split('#')[0]).replace(/^\/+/, '');
-            const assetPath = path.join(ATTACHMENTS_DIR, cleanFileName);
-            if (fs.existsSync(assetPath)) {
-              const ext = path.extname(cleanFileName).replace('.', '') || 'png';
-              const mimeType = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
-              const buffer = fs.readFileSync(assetPath);
-              preparedMap.attachments[id] = `data:${mimeType};base64,${buffer.toString('base64')}`;
-            }
-          }
-        }
-      }
-
+      const preparedMap = embedMapAttachmentsToBase64(map);
       const safeName = (map.name || 'map').replace(/[\\/:*?"<>|]/g, '_').slice(0, 50);
-      const fileName = `${safeName}_${timestamp}.json`;
+      const fileName = useSingleCleanFile ? `${safeName}_mindnote.json` : `${safeName}_${timestamp}.json`;
       const filePath = path.join(mindnoteDir, fileName);
 
       const payload = {
@@ -488,7 +494,7 @@ ipcMain.handle('desktop:export-to-gdrive', async (_event, { map, maps, isFullVau
   }
 });
 
-// 10.4 Chọn file nạp trực tiếp từ thư mục Google Drive
+// 10.4 Chọn file nạp trực tiếp từ thư mục Google Drive (qua hộp thoại)
 ipcMain.handle('desktop:pick-from-gdrive', async () => {
   const mindnoteDir = getGoogleDriveMindnoteDir();
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -509,6 +515,56 @@ ipcMain.handle('desktop:pick-from-gdrive', async () => {
   } catch (err) {
     dialog.showErrorBox('Lỗi nạp từ Google Drive', `Không thể đọc file: ${err.message}`);
     return null;
+  }
+});
+
+// 10.5 Liệt kê danh sách các file JSON trong thư mục Google Drive (Nạp 1-Click không cần mở hộp thoại)
+ipcMain.handle('desktop:list-gdrive-files', async () => {
+  try {
+    const mindnoteDir = getGoogleDriveMindnoteDir();
+    if (!mindnoteDir || !fs.existsSync(mindnoteDir)) {
+      return [];
+    }
+
+    const entries = fs.readdirSync(mindnoteDir);
+    const files = [];
+
+    for (const name of entries) {
+      if (!name.toLowerCase().endsWith('.json')) continue;
+      const fullPath = path.join(mindnoteDir, name);
+      try {
+        const stat = fs.statSync(fullPath);
+        if (stat.isFile()) {
+          files.push({
+            id: fullPath,
+            name,
+            updatedAt: Math.round(stat.mtimeMs),
+            size: stat.size,
+            source: 'desktop',
+          });
+        }
+      } catch {}
+    }
+
+    files.sort((a, b) => b.updatedAt - a.updatedAt);
+    return files;
+  } catch (err) {
+    console.error('[Desktop GDrive List] Lỗi:', err);
+    return [];
+  }
+});
+
+// 10.6 Đọc trực tiếp 1 file từ Google Drive theo đường dẫn (1-Click Load)
+ipcMain.handle('desktop:load-gdrive-file', async (_event, filePath) => {
+  try {
+    if (!filePath || !fs.existsSync(filePath)) {
+      throw new Error('Không tìm thấy tệp trên Google Drive.');
+    }
+    const raw = fs.readFileSync(filePath, 'utf8');
+    return JSON.parse(raw);
+  } catch (err) {
+    console.error('[Desktop GDrive Load] Lỗi:', err);
+    throw err;
   }
 });
 

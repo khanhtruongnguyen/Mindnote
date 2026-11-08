@@ -987,6 +987,7 @@ export function App() {
         onOpenContextModal={() => setIsContextModalOpen(true)}
         hasContext={Boolean(activeMap.context?.trim())}
         hasSupabaseConfigured={Boolean(settings.supabaseUrl && settings.supabaseAnonKey)}
+        hasDriveConfigured={Boolean(settings.googleDriveScriptUrl?.trim())}
         isAiOpen={isAiChatOpen}
         onToggleAi={() => setIsAiChatOpen((prev) => !prev)}
       />
@@ -1153,10 +1154,14 @@ export function App() {
         onReplaceVault={handleConfirmReplaceVault}
       />
 
-      {/* Modal Nạp Từ Google Drive (Web & Mobile) */}
+      {/* Modal Đồng Bộ Google Drive 1-Click (Web, Mobile & Desktop) */}
       <GoogleDriveImportModal
         isOpen={isGoogleDriveModalOpen}
         onClose={() => setIsGoogleDriveModalOpen(false)}
+        maps={maps}
+        activeMap={activeMap}
+        settings={settings}
+        onSaveSettings={handleSaveSettings}
         onSelectFromDevice={() => {
           const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
           fileInput?.click();

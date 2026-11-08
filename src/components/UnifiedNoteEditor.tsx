@@ -284,23 +284,31 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       setColorMenuOpen(false);
       restoreSelection();
       const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-      const selectedText = sel.toString();
-      if (!selectedText) return;
+      const selectedText = sel && sel.rangeCount > 0 ? sel.toString() : '';
 
       if (!bgColor) {
-        document.execCommand('insertText', false, selectedText);
-      } else {
+        if (selectedText) {
+          document.execCommand('removeFormat', false);
+        } else {
+          document.execCommand('hiliteColor', false, 'transparent');
+        }
+      } else if (selectedText) {
         const styleStr = `background: ${bgColor};${textColor ? ` color: ${textColor};` : ''} padding: 1px 5px; border-radius: 4px;`;
         document.execCommand(
           'insertHTML',
           false,
           `<mark style="${escapeAttr(styleStr)}">${escapeHtml(selectedText)}</mark>`
         );
+      } else {
+        document.execCommand('hiliteColor', false, bgColor);
+        if (textColor) {
+          document.execCommand('foreColor', false, textColor);
+        }
       }
       emitChanges();
+      saveSelection();
     },
-    [restoreSelection, emitChanges]
+    [restoreSelection, emitChanges, saveSelection]
   );
 
   // Insert Task Checkbox Item
@@ -649,6 +657,10 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   // Handle clicks inside the WYSIWYG surface (Math widgets, Checkboxes, Internal Links)
   const handleEditorClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
+      setHeadingMenuOpen(false);
+      setColorMenuOpen(false);
+      setBoxMenuOpen(false);
+
       const target = e.target as HTMLElement;
 
       // 1. Clicked on Task Checkbox
@@ -1003,8 +1015,8 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       {/* ==================================================== */}
       {/* THANH CÔNG CỤ CHUẨN BIG-TECH (WORD / NOTION / DOCS)  */}
       {/* ==================================================== */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-[#252534] bg-[#16161f]/95 backdrop-blur-md gap-1.5 overflow-x-auto max-w-full select-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden shrink-0 z-20">
-        <div className="flex items-center gap-1 shrink-0">
+      <div className="relative flex flex-wrap items-center justify-between px-3 py-2 border-b border-[#252534] bg-[#16161f]/95 backdrop-blur-md gap-1.5 overflow-visible max-w-full select-none shrink-0 z-40">
+        <div className="flex flex-wrap items-center gap-1">
           {/* 1. KIỂU VĂN BẢN / TIÊU ĐỀ DROPDOWN */}
           <div className="relative">
             <button

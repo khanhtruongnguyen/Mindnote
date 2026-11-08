@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld('mindnoteDesktop', {
   openGoogleDriveFolder: () => ipcRenderer.invoke('desktop:open-gdrive-folder'),
   exportToGoogleDrive: (data) => ipcRenderer.invoke('desktop:export-to-gdrive', data),
   pickFromGoogleDrive: () => ipcRenderer.invoke('desktop:pick-from-gdrive'),
+  listGoogleDriveFiles: () => ipcRenderer.invoke('desktop:list-gdrive-files'),
+  loadGoogleDriveFile: (filePath) => ipcRenderer.invoke('desktop:load-gdrive-file', filePath),
   minimizeWindow: () => ipcRenderer.invoke('desktop:minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('desktop:maximize-window'),
   closeWindow: () => ipcRenderer.invoke('desktop:close-window'),

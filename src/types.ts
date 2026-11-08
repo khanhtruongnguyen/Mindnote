@@ -52,6 +52,9 @@ export interface AppSettings {
   supabaseRealtime?: boolean;
   supabaseUserEmail?: string;
   lastCloudSyncedAt?: number;
+  // Google Drive 1-Click Sync
+  googleDriveScriptUrl?: string;
+  lastDriveSyncedAt?: number;
 }
 
 export interface AgentActionNode {
@@ -124,6 +127,15 @@ export interface GoogleDriveExportResult {
   error?: string;
 }
 
+export interface DriveFileItem {
+  id: string;
+  name: string;
+  updatedAt: number;
+  size?: number;
+  url?: string;
+  source: 'script' | 'desktop';
+}
+
 export interface MindnoteDesktopBridge {
   isDesktop: boolean;
   getVaultInfo: () => Promise<{
@@ -142,8 +154,10 @@ export interface MindnoteDesktopBridge {
   normalizeImportedMap: (map: MapData) => Promise<MapData>;
   getGoogleDriveInfo: () => Promise<GoogleDriveInfo>;
   openGoogleDriveFolder: () => Promise<boolean>;
-  exportToGoogleDrive: (data: { map?: MapData; maps?: MapData[]; isFullVault?: boolean }) => Promise<GoogleDriveExportResult>;
+  exportToGoogleDrive: (data: { map?: MapData; maps?: MapData[]; isFullVault?: boolean; keepSingleFile?: boolean }) => Promise<GoogleDriveExportResult>;
   pickFromGoogleDrive: () => Promise<unknown>;
+  listGoogleDriveFiles?: () => Promise<DriveFileItem[]>;
+  loadGoogleDriveFile?: (filePath: string) => Promise<unknown>;
   minimizeWindow: () => Promise<void>;
   maximizeWindow: () => Promise<void>;
   closeWindow: () => Promise<void>;
