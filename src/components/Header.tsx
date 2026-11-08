@@ -82,14 +82,14 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const isDesktop = typeof window !== 'undefined' && Boolean(window.mindnoteDesktop?.isDesktop);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+  const [syncDropdownOpen, setSyncDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(activeMap.name);
   const [copiedMapLink, setCopiedMapLink] = useState(false);
   const fileImportRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const exportDropdownRef = useRef<HTMLDivElement>(null);
+  const syncDropdownRef = useRef<HTMLDivElement>(null);
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   const handleCopyMapLink = () => {
@@ -116,8 +116,8 @@ export const Header: React.FC<HeaderProps> = ({
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
       }
-      if (exportDropdownRef.current && !exportDropdownRef.current.contains(e.target as Node)) {
-        setExportDropdownOpen(false);
+      if (syncDropdownRef.current && !syncDropdownRef.current.contains(e.target as Node)) {
+        setSyncDropdownOpen(false);
       }
       if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
         setMobileMenuOpen(false);
@@ -342,211 +342,225 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               onClick={onAddNode}
               title="Thêm nút mới vào giữa màn hình"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/30 transition-all hover:scale-[1.02]"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shadow-lg shadow-purple-600/30 transition-all hover:scale-[1.02] cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Thêm nút</span>
             </button>
           )}
 
-          {/* Desktop Connect Nodes button */}
+          {/* Desktop Unified Sync Menu (Đồng bộ) */}
           {!isMobile && (
-            <button
-              onClick={onOpenConnectModal}
-              title="Nối liên kết giữa các ô (không cần kéo thả)"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-300 hover:text-white hover:border-purple-500/40 text-xs font-medium transition-colors"
-            >
-              <GitBranch className="w-3.5 h-3.5 text-purple-400" />
-              <span>Nối ô</span>
-            </button>
-          )}
-
-          {/* Desktop Export Menu (Single Map vs Full Vault) */}
-          {!isMobile && (
-            <div className="relative" ref={exportDropdownRef}>
+            <div className="relative" ref={syncDropdownRef}>
               <button
-                onClick={() => setExportDropdownOpen(!exportDropdownOpen)}
-                title="Tùy chọn xuất file JSON (Xuất riêng 1 Map hoặc Sao lưu cả kho)"
-                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors cursor-pointer ${
-                  exportDropdownOpen
-                    ? 'bg-purple-600/30 border-purple-500/50 text-purple-200'
-                    : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-400 hover:text-white'
+                onClick={() => setSyncDropdownOpen(!syncDropdownOpen)}
+                title="Đồng bộ đám mây, Google Drive, Kho SSD và Xuất/Nhập file"
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold shadow-md transition-all hover:scale-[1.02] cursor-pointer ${
+                  hasSupabaseConfigured
+                    ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200 shadow-emerald-900/30'
+                    : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-300 hover:text-white hover:border-purple-500/40'
                 }`}
               >
-                <Download className="w-3.5 h-3.5" />
-                <ChevronDown className="w-3 h-3 text-zinc-500" />
+                <Cloud className={`w-3.5 h-3.5 ${hasSupabaseConfigured ? 'text-emerald-400' : 'text-purple-400'}`} />
+                <span>Đồng bộ</span>
+                {hasSupabaseConfigured && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                )}
+                <ChevronDown className="w-3 h-3 text-zinc-500 ml-0.5" />
               </button>
 
-              {exportDropdownOpen && (
-                <div className="absolute right-0 top-11 w-72 bg-[#1a1a24] border border-[#2e2e3e] rounded-xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150 space-y-1">
-                  <div className="px-2 py-1 text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
-                    Tùy chọn xuất file JSON
+              {syncDropdownOpen && (
+                <div className="absolute right-0 top-11 w-80 bg-[#181822] border border-[#2d2d3e] rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150 space-y-2">
+                  {/* Mục 1: Đám mây & Realtime */}
+                  <div>
+                    <div className="px-2.5 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                      Đám mây & Realtime
+                    </div>
+                    {onOpenSupabaseModal && (
+                      <button
+                        onClick={() => {
+                          setSyncDropdownOpen(false);
+                          onOpenSupabaseModal();
+                        }}
+                        className="w-full flex items-center justify-between p-2 rounded-xl text-left hover:bg-emerald-600/15 text-zinc-200 transition-colors group cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Database className="w-4 h-4 text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
+                          <div>
+                            <div className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                              <span>Supabase Cloud Sync</span>
+                              {hasSupabaseConfigured && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 border border-emerald-500/40 text-emerald-300">
+                                  Đang kết nối
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-zinc-400 leading-tight">
+                              Đồng bộ tức thì mọi thay đổi 2 chiều giữa điện thoại & máy tính
+                            </div>
+                          </div>
+                        </div>
+                        {hasSupabaseConfigured && <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0 ml-2" />}
+                      </button>
+                    )}
+
+                    {/* Google Drive for Desktop */}
+                    {isDesktop && onExportGoogleDrive && (
+                      <button
+                        onClick={() => {
+                          setSyncDropdownOpen(false);
+                          onExportGoogleDrive(activeMap, false);
+                        }}
+                        className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-emerald-600/15 text-zinc-200 transition-colors group cursor-pointer mt-0.5"
+                      >
+                        <Zap className="w-4 h-4 text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
+                        <div>
+                          <div className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                            <span>Xuất nhanh vào Google Drive</span>
+                            <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-mono">1-Click</span>
+                          </div>
+                          <div className="text-[11px] text-zinc-400 leading-tight">
+                            Lưu ngay vào G:\My Drive\Mindnote (kèm giây, Drive tự đồng bộ)
+                          </div>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Nạp từ Google Drive Desktop */}
+                    {isDesktop && onPickGoogleDrive && (
+                      <button
+                        onClick={() => {
+                          setSyncDropdownOpen(false);
+                          onPickGoogleDrive();
+                        }}
+                        className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-emerald-600/15 text-zinc-200 transition-colors group cursor-pointer mt-0.5"
+                      >
+                        <Cloud className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <div>
+                          <div className="text-xs font-semibold text-zinc-200">
+                            Nạp bản đồ từ Google Drive
+                          </div>
+                          <div className="text-[11px] text-zinc-400 leading-tight">
+                            Mở nhanh file từ thư mục G:\My Drive\Mindnote
+                          </div>
+                        </div>
+                      </button>
+                    )}
+
+                    {/* Google Drive Web */}
+                    {!isDesktop && onOpenGoogleDriveModal && (
+                      <button
+                        onClick={() => {
+                          setSyncDropdownOpen(false);
+                          onOpenGoogleDriveModal();
+                        }}
+                        className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-blue-600/15 text-zinc-200 transition-colors group cursor-pointer mt-0.5"
+                      >
+                        <Cloud className="w-4 h-4 text-blue-400 shrink-0" />
+                        <div>
+                          <div className="text-xs font-semibold text-blue-300">
+                            Nạp từ Google Drive (Web)
+                          </div>
+                          <div className="text-[11px] text-zinc-400 leading-tight">
+                            Nhập file JSON qua link chia sẻ hoặc mã tệp Drive
+                          </div>
+                        </div>
+                      </button>
+                    )}
                   </div>
 
-                  {/* Option 1: Xuất riêng Map hiện tại */}
-                  <button
-                    onClick={() => {
-                      setExportDropdownOpen(false);
-                      onExportSingleMap(activeMap);
-                    }}
-                    className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-purple-600/20 text-zinc-200 transition-colors group cursor-pointer"
-                  >
-                    <FileText className="w-4 h-4 text-purple-400 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
-                    <div>
-                      <div className="text-xs font-semibold text-purple-300">
-                        Xuất riêng Map này (Khuyên dùng)
-                      </div>
-                      <div className="text-[11px] text-zinc-400 leading-tight mt-0.5">
-                        Tải "{activeMap.name}.json" siêu nhẹ, đầy đủ ảnh để mang lên lớp / điện thoại.
-                      </div>
+                  {/* Mục 2: Xuất & Nhập Tệp Sao Lưu (JSON) */}
+                  <div className="border-t border-[#292938] pt-1.5">
+                    <div className="px-2.5 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                      Xuất & Nhập Tệp JSON
                     </div>
-                  </button>
-
-                  {/* Option 2: Sao lưu toàn bộ kho */}
-                  <button
-                    onClick={() => {
-                      setExportDropdownOpen(false);
-                      onExportBackup();
-                    }}
-                    className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-[#252535] text-zinc-200 transition-colors group cursor-pointer border-t border-zinc-800/60 pt-2"
-                  >
-                    <Layers className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
-                    <div>
-                      <div className="text-xs font-semibold text-zinc-300">
-                        Sao lưu toàn bộ kho ({maps.length} bản đồ)
-                      </div>
-                      <div className="text-[11px] text-zinc-500 leading-tight mt-0.5">
-                        Lưu toàn bộ các bản đồ vào 1 file backup lớn để cất giữ an toàn.
-                      </div>
-                    </div>
-                  </button>
-
-                  {/* Option 3: Xuất nhanh sang Google Drive Desktop (Tự động kèm giây) */}
-                  {isDesktop && onExportGoogleDrive && (
+                    {/* Xuất riêng Map */}
                     <button
                       onClick={() => {
-                        setExportDropdownOpen(false);
-                        onExportGoogleDrive(activeMap, false);
+                        setSyncDropdownOpen(false);
+                        onExportSingleMap(activeMap);
                       }}
-                      className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-emerald-600/20 text-zinc-200 transition-colors group cursor-pointer border-t border-zinc-800/60 pt-2"
+                      className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-purple-600/15 text-zinc-200 transition-colors group cursor-pointer"
                     >
-                      <Zap className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5 group-hover:scale-110 transition-transform" />
+                      <FileText className="w-4 h-4 text-purple-400 shrink-0 group-hover:scale-110 transition-transform" />
                       <div>
-                        <div className="text-xs font-semibold text-emerald-300 flex items-center gap-1">
-                          <span>⚡ Xuất nhanh vào Google Drive</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-950 border border-emerald-500/40 text-emerald-300">1-Click</span>
+                        <div className="text-xs font-semibold text-purple-300">
+                          Xuất riêng Map này ({activeMap.name})
                         </div>
-                        <div className="text-[11px] text-zinc-400 leading-tight mt-0.5">
-                          Lưu thẳng vào G:\My Drive\Mindnote (kèm ngày giờ đến từng giây). Drive tự đẩy lên mây!
+                        <div className="text-[11px] text-zinc-400 leading-tight">
+                          Tải file .json siêu nhẹ kèm đầy đủ ảnh để chia sẻ
                         </div>
                       </div>
                     </button>
-                  )}
 
-                  {/* Option 4: Sao lưu cả kho sang Google Drive */}
-                  {isDesktop && onExportGoogleDrive && (
+                    {/* Sao lưu cả kho */}
                     <button
                       onClick={() => {
-                        setExportDropdownOpen(false);
-                        onExportGoogleDrive(activeMap, true);
+                        setSyncDropdownOpen(false);
+                        onExportBackup();
                       }}
-                      className="w-full flex items-start gap-2.5 p-2 rounded-lg text-left hover:bg-emerald-600/20 text-zinc-200 transition-colors group cursor-pointer"
+                      className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-purple-600/15 text-zinc-200 transition-colors group cursor-pointer mt-0.5"
                     >
-                      <Cloud className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                      <Layers className="w-4 h-4 text-zinc-400 shrink-0" />
                       <div>
-                        <div className="text-xs font-semibold text-emerald-300">
-                          Sao lưu cả kho sang Google Drive
+                        <div className="text-xs font-semibold text-zinc-200">
+                          Sao lưu cả kho ({maps.length} bản đồ)
                         </div>
-                        <div className="text-[11px] text-zinc-500 leading-tight mt-0.5">
-                          Tạo file sao lưu toàn bộ kho trong thư mục Drive.
+                        <div className="text-[11px] text-zinc-400 leading-tight">
+                          Đóng gói toàn bộ các bản đồ vào 1 file backup
                         </div>
                       </div>
                     </button>
+
+                    {/* Nhập file sao lưu */}
+                    <button
+                      onClick={() => {
+                        setSyncDropdownOpen(false);
+                        if (isDesktop && onDesktopImport) {
+                          onDesktopImport();
+                        } else {
+                          fileImportRef.current?.click();
+                        }
+                      }}
+                      className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-cyan-600/15 text-zinc-200 transition-colors group cursor-pointer mt-0.5"
+                    >
+                      <Upload className="w-4 h-4 text-cyan-400 shrink-0" />
+                      <div>
+                        <div className="text-xs font-semibold text-cyan-300">
+                          Nhập tệp sao lưu JSON
+                        </div>
+                        <div className="text-[11px] text-zinc-400 leading-tight">
+                          Nạp map lẻ hoặc khôi phục dữ liệu từ máy tính
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {/* Mục 3: Kho lưu trữ SSD (Chỉ Desktop) */}
+                  {isDesktop && (
+                    <div className="border-t border-[#292938] pt-1.5">
+                      <button
+                        onClick={() => {
+                          setSyncDropdownOpen(false);
+                          window.mindnoteDesktop?.openVaultFolder();
+                        }}
+                        className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-purple-600/15 text-zinc-200 transition-colors group cursor-pointer"
+                      >
+                        <FolderOpen className="w-4 h-4 text-purple-400 shrink-0" />
+                        <div>
+                          <div className="text-xs font-semibold text-purple-300">
+                            Mở kho lưu trữ Vault SSD
+                          </div>
+                          <div className="text-[11px] text-zinc-400 leading-tight">
+                            Mở thư mục Documents\MindnoteVault trên máy
+                          </div>
+                        </div>
+                      </button>
+                    </div>
                   )}
                 </div>
               )}
             </div>
-          )}
-
-          {/* Desktop Import */}
-          {!isMobile && (
-            <button
-              onClick={() => {
-                if (isDesktop && onDesktopImport) {
-                  onDesktopImport();
-                } else {
-                  fileImportRef.current?.click();
-                }
-              }}
-              title={isDesktop ? "Nhập file JSON sao lưu từ máy tính" : "Nhập file JSON sao lưu"}
-              className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
-            >
-              <Upload className="w-4 h-4" />
-            </button>
-          )}
-
-          {/* Web Google Drive Import Button (Chỉ trên bản Web) */}
-          {!isMobile && !isDesktop && onOpenGoogleDriveModal && (
-            <button
-              onClick={onOpenGoogleDriveModal}
-              title="Nhập bản đồ từ Google Drive hoặc dán link chia sẻ"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-blue-950/30 border border-blue-500/40 text-blue-300 hover:text-white hover:border-blue-400 text-xs font-medium transition-colors cursor-pointer"
-            >
-              <Cloud className="w-3.5 h-3.5 text-blue-400" />
-              <span>Google Drive</span>
-            </button>
-          )}
-
-          {/* Desktop Google Drive Button (Mở hoặc Nạp từ Google Drive trên PC) */}
-          {!isMobile && isDesktop && onPickGoogleDrive && (
-            <button
-              onClick={onPickGoogleDrive}
-              title="Chọn file bản đồ nạp nhanh từ thư mục Google Drive (G:\My Drive\Mindnote)"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400 text-xs font-medium transition-colors cursor-pointer shadow-sm"
-            >
-              <Cloud className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Từ Drive</span>
-            </button>
-          )}
-
-          {/* Desktop Mode Vault Folder Button */}
-          {!isMobile && isDesktop && (
-            <button
-              onClick={() => window.mindnoteDesktop?.openVaultFolder()}
-              title="Mở thư mục MindnoteVault lưu trên máy tính (Documents\MindnoteVault)"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-purple-950/40 border border-purple-500/40 text-purple-300 hover:text-white hover:border-purple-400 text-xs font-medium transition-colors shadow-sm"
-            >
-              <FolderOpen className="w-3.5 h-3.5 text-purple-400" />
-              <span>Vault SSD</span>
-            </button>
-          )}
-
-          {/* Desktop Supabase Cloud Button */}
-          {!isMobile && onOpenSupabaseModal && (
-            <button
-              onClick={onOpenSupabaseModal}
-              title={hasSupabaseConfigured ? 'Supabase Cloud đã kết nối (Realtime)' : 'Kết nối Supabase Cloud'}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-medium transition-colors cursor-pointer ${
-                hasSupabaseConfigured
-                  ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 shadow-sm shadow-emerald-500/20'
-                  : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-400 hover:text-white'
-              }`}
-            >
-              <Database className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Cloud Sync</span>
-              {hasSupabaseConfigured && <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />}
-            </button>
-          )}
-
-          {/* Desktop Help */}
-          {!isMobile && (
-            <button
-              onClick={onOpenHelpModal}
-              title="Hướng dẫn & Phím tắt"
-              className="p-2 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-400 hover:text-white transition-colors"
-            >
-              <HelpCircle className="w-4 h-4" />
-            </button>
           )}
 
           {/* Device Mode Switcher (Dropdown or Button) */}
