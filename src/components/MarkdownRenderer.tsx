@@ -4,6 +4,24 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
 import { ExternalLink, Lightbulb, Compass } from 'lucide-react';
+import { parseBoxBlock } from '../utils/markdownCodec';
+
+function parseInlineCssToReact(cssString: string): React.CSSProperties {
+  const styleObj: Record<string, string> = {};
+  if (!cssString) return styleObj;
+  for (const decl of cssString.split(';')) {
+    const colonIdx = decl.indexOf(':');
+    if (colonIdx > 0) {
+      const prop = decl.substring(0, colonIdx).trim();
+      const val = decl.substring(colonIdx + 1).trim();
+      if (prop && val) {
+        const camelProp = prop.replace(/-([a-z])/g, (_, g) => g.toUpperCase());
+        styleObj[camelProp] = val;
+      }
+    }
+  }
+  return styleObj as React.CSSProperties;
+}
 
 interface MarkdownRendererProps {
   content: string;
@@ -160,9 +178,24 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
         </a>
       );
     },
-    /* Khối mã nguồn */
+    /* Khối mã nguồn & Ô màu (box) */
     code: ({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'>) => {
       const isInline = !className;
+      if (className === 'language-box') {
+        const rawText = String(children || '');
+        const parsed = parseBoxBlock(rawText);
+        return (
+          <div
+            style={parseInlineCssToReact(parsed.style)}
+            className="my-3 rounded-xl shadow-lg leading-relaxed"
+          >
+            {parsed.title && (
+              <div className="font-bold text-sm mb-1.5">{parsed.title}</div>
+            )}
+            <div className="text-xs sm:text-sm whitespace-pre-wrap">{parsed.content}</div>
+          </div>
+        );
+      }
       return isInline ? (
         <code className="bg-zinc-800/90 text-purple-300 px-1.5 py-0.5 rounded text-xs font-mono border border-zinc-700/50" {...props}>
           {children}

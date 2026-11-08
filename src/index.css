@@ -131,3 +131,397 @@
 .katex {
   font-size: 1.05em !important;
 }
+
+/* =========================================================
+   MINDNOTE BIG-TECH WYSIWYG DOCUMENT SURFACE STYLES
+   ========================================================= */
+.mn-doc-surface {
+  outline: none;
+  color: #e4e4e7;
+  font-size: 15px;
+  line-height: 1.75;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  caret-color: #a855f7;
+}
+
+.mn-doc-surface.mn-doc-fullscreen {
+  font-size: 16px;
+  line-height: 1.8;
+}
+
+.mn-doc-surface:empty::before,
+.mn-doc-surface[data-empty="true"]::before {
+  content: attr(data-placeholder);
+  color: #52525b;
+  pointer-events: none;
+  display: block;
+  font-style: italic;
+}
+
+.mn-doc-surface h1 {
+  font-size: 1.65em;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.3;
+  margin: 1.1em 0 0.45em 0;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid rgba(63, 63, 70, 0.65);
+  letter-spacing: -0.015em;
+}
+
+.mn-doc-surface h1:first-child,
+.mn-doc-surface h2:first-child,
+.mn-doc-surface h3:first-child,
+.mn-doc-surface p:first-child {
+  margin-top: 0;
+}
+
+.mn-doc-surface h2 {
+  font-size: 1.35em;
+  font-weight: 700;
+  color: #f4f4f5;
+  line-height: 1.35;
+  margin: 1em 0 0.4em 0;
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid rgba(39, 39, 42, 0.8);
+}
+
+.mn-doc-surface h3 {
+  font-size: 1.15em;
+  font-weight: 700;
+  color: #d8b4fe;
+  line-height: 1.4;
+  margin: 0.9em 0 0.35em 0;
+}
+
+.mn-doc-surface h4 {
+  font-size: 1.02em;
+  font-weight: 600;
+  color: #e4e4e7;
+  line-height: 1.45;
+  margin: 0.75em 0 0.25em 0;
+}
+
+.mn-doc-surface p {
+  margin: 0 0 0.65em 0;
+}
+
+.mn-doc-surface strong,
+.mn-doc-surface b {
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.mn-doc-surface em,
+.mn-doc-surface i {
+  font-style: italic;
+  color: #f4f4f5;
+}
+
+.mn-doc-surface u {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: #a855f7;
+}
+
+.mn-doc-surface del,
+.mn-doc-surface s {
+  text-decoration: line-through;
+  color: #71717a;
+}
+
+.mn-doc-surface mark {
+  background: rgba(250, 204, 21, 0.28);
+  color: #fef08a;
+  padding: 0.08em 0.3em;
+  border-radius: 4px;
+}
+
+.mn-doc-surface code.mn-inline-code,
+.mn-doc-surface :not(pre) > code {
+  background: rgba(39, 39, 42, 0.9);
+  color: #d8b4fe;
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  font-size: 0.88em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  border: 1px solid rgba(82, 82, 91, 0.45);
+}
+
+/* Lists & Nested Lists */
+.mn-doc-surface ul,
+.mn-doc-surface ol {
+  margin: 0.35em 0 0.75em 0;
+  padding-left: 1.5rem;
+}
+
+.mn-doc-surface ul {
+  list-style-type: disc;
+}
+
+.mn-doc-surface ul ul {
+  list-style-type: circle;
+  margin-top: 0.2em;
+  margin-bottom: 0.25em;
+}
+
+.mn-doc-surface ul ul ul {
+  list-style-type: square;
+}
+
+.mn-doc-surface ol {
+  list-style-type: decimal;
+}
+
+.mn-doc-surface li {
+  margin: 0.25em 0;
+  line-height: 1.7;
+}
+
+.mn-doc-surface li::marker {
+  color: #a855f7;
+}
+
+.mn-doc-surface li.mn-task-item {
+  list-style-type: none;
+  margin-left: -1.25rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.mn-doc-surface li.mn-task-item input.mn-task-checkbox {
+  margin-top: 0.38rem;
+  width: 15px;
+  height: 15px;
+  accent-color: #9333ea;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.mn-doc-surface li.mn-task-item[data-task="true"] > .mn-li-content {
+  text-decoration: line-through;
+  color: #71717a;
+}
+
+/* Inline & Block Math (KaTeX) inside WYSIWYG flow */
+.mn-doc-surface .mn-math-inline {
+  display: inline-flex;
+  align-items: center;
+  padding: 0px 4px;
+  margin: 0 1px;
+  border-radius: 5px;
+  background: rgba(168, 85, 247, 0.08);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  vertical-align: baseline;
+  user-select: none;
+}
+
+.mn-doc-surface .mn-math-inline:hover {
+  background: rgba(168, 85, 247, 0.2);
+  border-color: rgba(168, 85, 247, 0.5);
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.15);
+}
+
+.mn-doc-surface .mn-math-block {
+  margin: 0.85em 0;
+  padding: 0.85rem 1rem;
+  border-radius: 12px;
+  background: rgba(24, 24, 34, 0.85);
+  border: 1px solid rgba(168, 85, 247, 0.28);
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  overflow-x: auto;
+  user-select: none;
+}
+
+.mn-doc-surface .mn-math-block:hover {
+  border-color: rgba(168, 85, 247, 0.65);
+  background: rgba(30, 30, 44, 0.95);
+  box-shadow: 0 4px 16px rgba(147, 51, 234, 0.15);
+}
+
+/* Callout / Colored Note Box inside Document Flow */
+.mn-doc-surface .mn-callout-box {
+  margin: 0.9em 0;
+  border-radius: 12px;
+  padding: 14px 16px;
+  position: relative;
+  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+
+.mn-doc-surface .mn-callout-box:focus-within {
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.5), 0 8px 20px rgba(0, 0, 0, 0.35);
+}
+
+.mn-doc-surface .mn-callout-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.mn-doc-surface .mn-callout-title {
+  font-weight: 700;
+  font-size: 1.02em;
+  outline: none;
+  flex: 1;
+}
+
+.mn-doc-surface .mn-callout-body {
+  font-size: 0.96em;
+  line-height: 1.65;
+  outline: none;
+}
+
+.mn-doc-surface .mn-callout-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* Blockquote */
+.mn-doc-surface blockquote,
+.mn-doc-surface .mn-blockquote {
+  margin: 0.85em 0;
+  padding: 0.65rem 1rem;
+  border-left: 4px solid #a855f7;
+  background: rgba(168, 85, 247, 0.07);
+  border-radius: 0 10px 10px 0;
+  color: #d4d4d8;
+}
+
+.mn-doc-surface blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* Tables */
+.mn-doc-surface .mn-table-wrapper {
+  margin: 0.9em 0;
+  overflow-x: auto;
+  border-radius: 10px;
+  border: 1px solid #2e2e3e;
+  background: #14141d;
+}
+
+.mn-doc-surface table.mn-table,
+.mn-doc-surface table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+  text-align: left;
+}
+
+.mn-doc-surface th {
+  background: #1c1c28;
+  color: #f4f4f5;
+  font-weight: 700;
+  padding: 9px 12px;
+  border-bottom: 1px solid #2e2e3e;
+  border-right: 1px solid #2e2e3e;
+}
+
+.mn-doc-surface th:last-child,
+.mn-doc-surface td:last-child {
+  border-right: none;
+}
+
+.mn-doc-surface td {
+  padding: 8px 12px;
+  border-top: 1px solid rgba(46, 46, 62, 0.65);
+  border-right: 1px solid rgba(46, 46, 62, 0.65);
+  color: #e4e4e7;
+  vertical-align: top;
+}
+
+.mn-doc-surface th:focus,
+.mn-doc-surface td:focus {
+  outline: 2px solid #a855f7;
+  outline-offset: -2px;
+  background: rgba(168, 85, 247, 0.08);
+}
+
+/* Links */
+.mn-doc-surface a.mn-wiki-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 9px;
+  margin: 0 2px;
+  border-radius: 9999px;
+  background: rgba(147, 51, 234, 0.2);
+  border: 1px solid rgba(168, 85, 247, 0.45);
+  color: #e9d5ff;
+  font-size: 0.88em;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease;
+}
+
+.mn-doc-surface a.mn-wiki-link:hover {
+  background: rgba(147, 51, 234, 0.35);
+  color: #ffffff;
+  border-color: #a855f7;
+}
+
+.mn-doc-surface a.mn-ext-link {
+  color: #c084fc;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* Images */
+.mn-doc-surface .mn-image-widget {
+  display: inline-block;
+  margin: 0.6em 0;
+  max-width: 100%;
+  text-align: center;
+  cursor: pointer;
+}
+
+.mn-doc-surface .mn-editor-img {
+  max-width: 100%;
+  max-height: 360px;
+  border-radius: 12px;
+  border: 1px solid rgba(82, 82, 91, 0.5);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  object-fit: contain;
+  margin: 0 auto;
+  display: block;
+}
+
+.mn-doc-surface .mn-img-caption {
+  display: block;
+  font-size: 0.8em;
+  color: #a1a1aa;
+  margin-top: 6px;
+  font-style: italic;
+}
+
+/* Horizontal Rule */
+.mn-doc-surface hr.mn-hr,
+.mn-doc-surface hr {
+  border: none;
+  border-top: 1px solid #2e2e3e;
+  margin: 1.25em 0;
+}
+
+/* Code Block */
+.mn-doc-surface pre.mn-code-block {
+  background: #0e0e14;
+  border: 1px solid #272736;
+  border-radius: 10px;
+  padding: 12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.86em;
+  color: #e4e4e7;
+  overflow-x: auto;
+  margin: 0.85em 0;
+}
