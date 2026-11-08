@@ -828,14 +828,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onChange={(newContent) => onUpdateNode(selectedNode.id, { content: newContent })}
               attachments={attachments}
               onSaveAttachment={onSaveAttachment}
-              onOpenLinkModal={() => {
-                const otherNodes = allNodes.filter((n) => n.id !== selectedNode.id);
-                if (otherNodes.length > 0 && !selectedInternalNodeId) {
-                  setSelectedInternalNodeId(otherNodes[0].id);
-                  setLinkTitle(otherNodes[0].data.label || '');
-                }
-                setShowLinkModal(true);
-              }}
+              allNodes={allNodes}
+              currentNodeId={selectedNode.id}
               onToggleAiWriter={() => setShowAiWriter(!showAiWriter)}
               showAiWriter={showAiWriter}
               isFullscreen={isFullscreen}
@@ -848,7 +842,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Mini Modal Chèn Liên Kết: Nội Bộ (Ở lại cùng tab) hoặc Web Ngoài */}
       {showLinkModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
           <div className="bg-[#181822] border border-[#2e2e3d] rounded-2xl w-full max-w-sm sm:max-w-md shadow-2xl p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
               <div className="flex items-center gap-2">

@@ -32,7 +32,10 @@ import {
   X,
   FileCode2,
   Eye,
+  Compass,
+  Globe,
 } from 'lucide-react';
+import type { CustomNode } from '../types';
 import {
   CODE_BOX_PRESETS,
   markdownToHtml,
@@ -48,6 +51,8 @@ interface UnifiedNoteEditorProps {
   onChange: (newContent: string) => void;
   attachments?: Record<string, string>;
   onSaveAttachment?: (id: string, base64: string) => void;
+  allNodes?: CustomNode[];
+  currentNodeId?: string;
   onOpenLinkModal?: () => void;
   onToggleAiWriter?: () => void;
   showAiWriter?: boolean;
@@ -108,7 +113,8 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   onChange,
   attachments = {},
   onSaveAttachment,
-  onOpenLinkModal,
+  allNodes = [],
+  currentNodeId,
   onToggleAiWriter,
   showAiWriter = false,
   isFullscreen = false,
@@ -132,6 +138,15 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   const [mathLatex, setMathLatex] = useState('');
   const [mathIsBlock, setMathIsBlock] = useState(false);
   const [editingMathEl, setEditingMathEl] = useState<HTMLElement | null>(null);
+
+  // Link Editor Modal State (Chèn Link Nội Bộ / Web Ngoài ngay tại con trỏ)
+  const [linkModalOpen, setLinkModalOpen] = useState(false);
+  const [linkModalTab, setLinkModalTab] = useState<'internal' | 'external'>('internal');
+  const [selectedInternalNodeId, setSelectedInternalNodeId] = useState<string>('');
+  const [internalLinkSyntax, setInternalLinkSyntax] = useState<'wiki' | 'markdown'>('wiki');
+  const [linkTitle, setLinkTitle] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [editingLinkEl, setEditingLinkEl] = useState<HTMLAnchorElement | null>(null);
 
   // Active Contextual Elements (Callout Box or Table currently focused)
   const [activeCalloutEl, setActiveCalloutEl] = useState<HTMLElement | null>(null);
@@ -377,6 +392,136 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
     setEditingMathEl(null);
   }, [mathLatex, mathIsBlock, editingMathEl, emitChanges, insertHtmlAtCursor]);
 
+  // Open Link Modal (for new link at cursor or editing existing link)
+  const handleOpenNewLinkModal = useCallback(() => {
+    saveSelection();
+    const sel = window.getSelection();
+    const selectedText = sel?.toString().trim() || '';
+    const otherNodes = allNodes.filter((n) => n.id !== currentNodeId);
+
+    setEditingLinkEl(null);
+    setLinkUrl('');
+
+    if (otherNodes.length > 0) {
+      const firstNode = otherNodes[0];
+      setSelectedInternalNodeId(firstNode.id);
+      setLinkTitle(selectedText || firstNode.data.label || '');
+      setLinkModalTab('internal');
+    } else {
+      setSelectedInternalNodeId('');
+      setLinkTitle(selectedText || '');
+      setLinkModalTab('external');
+    }
+
+    setLinkModalOpen(true);
+  }, [saveSelection, allNodes, currentNodeId]);
+
+  const handleSubmitInternalLink = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!selectedInternalNodeId) return;
+
+      const targetNode = allNodes.find((n) => n.id === selectedInternalNodeId);
+      const targetLabel = targetNode?.data.label || selectedInternalNodeId || 'Ghi chú';
+      const displayTitle = linkTitle.trim() || targetLabel;
+
+      const linkHtml =
+        internalLinkSyntax === 'wiki'
+          ? `<a href="node:${escapeAttr(targetLabel)}" class="mn-wiki-link" contenteditable="false" data-link-type="wiki" data-target="${escapeAttr(targetLabel)}" data-alias="${escapeAttr(displayTitle)}" title="Nhấp để mở ô ghi chú: ${escapeAttr(targetLabel)}"><span class="mn-wiki-icon">🧭</span><span>${escapeHtml(displayTitle)}</span></a>`
+          : `<a href="node:${escapeAttr(selectedInternalNodeId)}" class="mn-wiki-link" contenteditable="false" data-link-type="md-internal" data-href="node:${escapeAttr(selectedInternalNodeId)}" data-alias="${escapeAttr(displayTitle)}" title="Nhấp để đi tới ô ghi chú"><span class="mn-wiki-icon">🧭</span><span>${escapeHtml(displayTitle)}</span></a>`;
+
+      if (editingLinkEl && editorRef.current?.contains(editingLinkEl)) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = linkHtml;
+        if (wrapper.firstElementChild) {
+          editingLinkEl.replaceWith(wrapper.firstElementChild);
+        }
+        emitChanges();
+      } else if (sourceMode) {
+        const mdLink =
+          internalLinkSyntax === 'wiki'
+            ? displayTitle === targetLabel
+              ? `[[${targetLabel}]]`
+              : `[[${targetLabel}|${displayTitle}]]`
+            : `[${displayTitle}](node:${selectedInternalNodeId})`;
+        const nextContent = content ? `${content.trimEnd()} ${mdLink}` : mdLink;
+        lastEmittedContentRef.current = nextContent;
+        onChange(nextContent);
+      } else {
+        insertHtmlAtCursor(`${linkHtml}&nbsp;`);
+      }
+
+      setLinkModalOpen(false);
+      setEditingLinkEl(null);
+      setLinkTitle('');
+    },
+    [
+      selectedInternalNodeId,
+      allNodes,
+      linkTitle,
+      internalLinkSyntax,
+      editingLinkEl,
+      sourceMode,
+      content,
+      onChange,
+      insertHtmlAtCursor,
+      emitChanges,
+    ]
+  );
+
+  const handleSubmitExternalLink = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      let cleanUrl = linkUrl.trim();
+      if (!cleanUrl) return;
+
+      // Auto-prefix https:// if user typed a domain like docs.google.com/... without protocol
+      if (
+        !cleanUrl.startsWith('http://') &&
+        !cleanUrl.startsWith('https://') &&
+        !cleanUrl.startsWith('mailto:') &&
+        !cleanUrl.startsWith('node:') &&
+        !cleanUrl.startsWith('#')
+      ) {
+        cleanUrl = `https://${cleanUrl}`;
+      }
+
+      const displayTitle = linkTitle.trim() || cleanUrl;
+
+      // Detect if the pasted URL is actually an internal Mindnote link (?note= or ?map=)
+      let isInternalUrl = cleanUrl.startsWith('node:') || cleanUrl.startsWith('#');
+      if (!isInternalUrl && (cleanUrl.includes('?note=') || cleanUrl.includes('?map=') || cleanUrl.includes('&note='))) {
+        isInternalUrl = true;
+      }
+
+      const linkHtml = isInternalUrl
+        ? `<a href="${escapeAttr(cleanUrl)}" class="mn-wiki-link" contenteditable="false" data-link-type="md-internal" data-href="${escapeAttr(cleanUrl)}" data-alias="${escapeAttr(displayTitle)}" title="Nhấp để đi tới ô ghi chú"><span class="mn-wiki-icon">🧭</span><span>${escapeHtml(displayTitle)}</span></a>`
+        : `<a href="${escapeAttr(cleanUrl)}" target="_blank" rel="noopener noreferrer" class="mn-ext-link" contenteditable="false" data-href="${escapeAttr(cleanUrl)}" data-alias="${escapeAttr(displayTitle)}" title="Nhấp để mở liên kết: ${escapeAttr(cleanUrl)}"><span class="mn-ext-icon">🌐</span><span>${escapeHtml(displayTitle)}</span></a>`;
+
+      if (editingLinkEl && editorRef.current?.contains(editingLinkEl)) {
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = linkHtml;
+        if (wrapper.firstElementChild) {
+          editingLinkEl.replaceWith(wrapper.firstElementChild);
+        }
+        emitChanges();
+      } else if (sourceMode) {
+        const mdLink = `[${displayTitle}](${cleanUrl})`;
+        const nextContent = content ? `${content.trimEnd()} ${mdLink}` : mdLink;
+        lastEmittedContentRef.current = nextContent;
+        onChange(nextContent);
+      } else {
+        insertHtmlAtCursor(`${linkHtml}&nbsp;`);
+      }
+
+      setLinkModalOpen(false);
+      setEditingLinkEl(null);
+      setLinkTitle('');
+      setLinkUrl('');
+    },
+    [linkUrl, linkTitle, editingLinkEl, sourceMode, content, onChange, insertHtmlAtCursor, emitChanges]
+  );
+
   // Callout Box contextual actions
   const handleChangeActiveBoxPreset = useCallback(
     (preset: (typeof CODE_BOX_PRESETS)[0]) => {
@@ -531,29 +676,71 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
         return;
       }
 
-      // 3. Clicked on Internal Wiki-Link -> Navigate to node on Mindmap
+      // 3. Clicked on Internal Wiki-Link -> Navigate to node on Mindmap (Same tab)
       const wikiLink = target.closest('a.mn-wiki-link') as HTMLAnchorElement | null;
       if (wikiLink) {
         e.preventDefault();
         e.stopPropagation();
-        const targetId =
-          wikiLink.getAttribute('data-target') ||
-          wikiLink.getAttribute('data-href')?.replace(/^node:/, '').replace(/^#/, '') ||
-          '';
-        if (targetId) {
+        const rawTarget = wikiLink.getAttribute('data-target') || '';
+        const rawHref = wikiLink.getAttribute('data-href') || wikiLink.getAttribute('href') || '';
+
+        let targetMap: string | undefined;
+        let targetNote = rawTarget;
+
+        if (!targetNote && rawHref) {
+          if (rawHref.startsWith('node:')) {
+            targetNote = decodeURIComponent(rawHref.replace(/^node:/, ''));
+          } else if (rawHref.startsWith('#')) {
+            targetNote = decodeURIComponent(rawHref.replace(/^#/, ''));
+          } else if (rawHref.includes('?') && (rawHref.includes('note=') || rawHref.includes('map='))) {
+            try {
+              const parsed = new URL(rawHref, window.location.origin);
+              targetMap = parsed.searchParams.get('map') || undefined;
+              targetNote = parsed.searchParams.get('note') || '';
+            } catch {
+              targetNote = rawHref;
+            }
+          } else {
+            targetNote = decodeURIComponent(rawHref);
+          }
+        }
+
+        if (targetNote || targetMap) {
           window.dispatchEvent(
             new CustomEvent('canvas-navigate', {
-              detail: { noteId: decodeURIComponent(targetId) },
+              detail: { mapId: targetMap, noteId: targetNote },
             })
           );
         }
         return;
       }
 
-      // 4. Clicked on External Link with Ctrl/Cmd
+      // 4. Clicked on External Link -> Open web link (or navigate internally if it's a Mindnote link)
       const extLink = target.closest('a.mn-ext-link') as HTMLAnchorElement | null;
-      if (extLink && (e.ctrlKey || e.metaKey)) {
-        window.open(extLink.href, '_blank', 'noopener,noreferrer');
+      if (extLink) {
+        e.preventDefault();
+        e.stopPropagation();
+        const rawHref = extLink.getAttribute('data-href') || extLink.getAttribute('href') || '';
+        if (!rawHref) return;
+
+        try {
+          const parsed = new URL(rawHref, window.location.origin);
+          if (parsed.searchParams.has('note') || parsed.searchParams.has('map')) {
+            window.dispatchEvent(
+              new CustomEvent('canvas-navigate', {
+                detail: {
+                  mapId: parsed.searchParams.get('map') || undefined,
+                  noteId: parsed.searchParams.get('note') || undefined,
+                },
+              })
+            );
+            return;
+          }
+        } catch {
+          // Not a relative/same-origin URL with query params
+        }
+
+        window.open(rawHref, '_blank', 'noopener,noreferrer');
         return;
       }
 
@@ -588,6 +775,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       if (isCtrlOrCmd && (e.key === 'm' || e.key === 'M')) {
         e.preventDefault();
         handleOpenNewMath();
+        return;
+      }
+      if (isCtrlOrCmd && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        handleOpenNewLinkModal();
         return;
       }
 
@@ -1125,20 +1317,15 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             <ImageIcon className="w-4 h-4" />
           </button>
 
-          {onOpenLinkModal && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                saveSelection();
-                onOpenLinkModal();
-              }}
-              title="Chèn liên kết nội bộ / liên kết web"
-              className="p-1.5 rounded-lg hover:bg-[#252535] text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
-            >
-              <LinkIcon className="w-4 h-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleOpenNewLinkModal}
+            title="Chèn liên kết nội bộ / liên kết web (Ctrl+K)"
+            className="p-1.5 rounded-lg hover:bg-[#252535] text-blue-400 hover:text-blue-300 transition-colors cursor-pointer"
+          >
+            <LinkIcon className="w-4 h-4" />
+          </button>
         </div>
 
         {/* PHÍA PHẢI: AI VIẾT, MÃ NGUỒN & TOÀN MÀN HÌNH */}
@@ -1402,7 +1589,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       {/* POPOVER CHÈN / SỬA CÔNG THỨC TOÁN & KÝ HIỆU (KATEX)   */}
       {/* ==================================================== */}
       {mathModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-[200] flex items-center justify-center p-4">
           <div className="bg-[#181824] border border-purple-500/40 rounded-2xl w-full max-w-md shadow-2xl p-4 space-y-3.5 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
               <div className="flex items-center gap-2 text-sm font-bold text-white">
@@ -1523,10 +1710,206 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       )}
 
       {/* ==================================================== */}
+      {/* MODAL CHÈN LIÊN KẾT NỘI BỘ & WEB NGOÀI (Z-200)       */}
+      {/* ==================================================== */}
+      {linkModalOpen && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-[200] flex items-center justify-center p-4">
+          <div className="bg-[#181822] border border-[#2e2e3d] rounded-2xl w-full max-w-sm sm:max-w-md shadow-2xl p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <LinkIcon className="w-4 h-4 text-purple-400" />
+                <h3 className="text-sm font-bold text-white">Chèn liên kết vào vị trí con trỏ</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLinkModalOpen(false)}
+                className="text-zinc-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Chuyển đổi Tab: Link Nội Bộ vs Link Web Ngoài */}
+            <div className="flex rounded-lg bg-[#121218] p-1 border border-zinc-800">
+              <button
+                type="button"
+                onClick={() => setLinkModalTab('internal')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                  linkModalTab === 'internal'
+                    ? 'bg-purple-600 text-white shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Compass className="w-3.5 h-3.5" />
+                <span>Link Nội Bộ (Cùng tab)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLinkModalTab('external')}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-semibold rounded-md transition-all cursor-pointer ${
+                  linkModalTab === 'external'
+                    ? 'bg-blue-600 text-white shadow-sm'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                <Globe className="w-3.5 h-3.5" />
+                <span>Link Web Ngoài</span>
+              </button>
+            </div>
+
+            {linkModalTab === 'internal' ? (
+              <form onSubmit={handleSubmitInternalLink} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Chọn ô ghi chú muốn liên kết đến *
+                  </label>
+                  {allNodes.filter((n) => n.id !== currentNodeId).length > 0 ? (
+                    <select
+                      value={selectedInternalNodeId}
+                      onChange={(e) => {
+                        setSelectedInternalNodeId(e.target.value);
+                        const found = allNodes.find((n) => n.id === e.target.value);
+                        if (found) {
+                          setLinkTitle(found.data.label || '');
+                        }
+                      }}
+                      className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 outline-none focus:border-purple-500"
+                    >
+                      <option value="">-- Chọn một ô ghi chú --</option>
+                      {allNodes
+                        .filter((n) => n.id !== currentNodeId)
+                        .map((n) => (
+                          <option key={n.id} value={n.id}>
+                            {n.data.label || 'Chưa đặt tên'}
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    <p className="text-xs text-amber-400/80 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
+                      Chưa có ô ghi chú nào khác trên bản đồ này để nối tới.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Tên hiển thị trên trang viết
+                  </label>
+                  <input
+                    type="text"
+                    value={linkTitle}
+                    onChange={(e) => setLinkTitle(e.target.value)}
+                    placeholder="Mặc định lấy theo tên ô ghi chú"
+                    className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1.5">
+                    Kiểu lưu trữ liên kết:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={() => setInternalLinkSyntax('wiki')}
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                        internalLinkSyntax === 'wiki'
+                          ? 'border-purple-500 bg-purple-500/15 text-purple-200'
+                          : 'border-zinc-800 bg-[#121218] text-zinc-400 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div className="font-bold">[[Wiki-link]]</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">Chuẩn Obsidian gọn gàng</div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInternalLinkSyntax('markdown')}
+                      className={`p-2 rounded-lg border text-left transition-all cursor-pointer ${
+                        internalLinkSyntax === 'markdown'
+                          ? 'border-purple-500 bg-purple-500/15 text-purple-200'
+                          : 'border-zinc-800 bg-[#121218] text-zinc-400 hover:border-zinc-700'
+                      }`}
+                    >
+                      <div className="font-bold">[Tên](node:id)</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">Định danh theo ID cố định</div>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setLinkModalOpen(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!selectedInternalNodeId}
+                    className="px-4 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md shadow-purple-600/30 transition-colors cursor-pointer"
+                  >
+                    Chèn vào dòng chữ
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handleSubmitExternalLink} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Tên hiển thị
+                  </label>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={linkTitle}
+                    onChange={(e) => setLinkTitle(e.target.value)}
+                    placeholder="Ví dụ: Tài liệu Phác đồ Bộ Y Tế"
+                    className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1">
+                    Đường dẫn (URL) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={linkUrl}
+                    onChange={(e) => setLinkUrl(e.target.value)}
+                    placeholder="https://docs.google.com/... hoặc dán link bất kỳ"
+                    className="w-full bg-[#121218] border border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder-zinc-600 outline-none focus:border-blue-500 font-mono"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setLinkModalOpen(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-400 hover:text-white cursor-pointer"
+                  >
+                    Hủy
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!linkUrl.trim()}
+                    className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold shadow-md shadow-blue-600/30 transition-colors cursor-pointer"
+                  >
+                    Chèn link web ngoài
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
       {/* MODAL TÙY CHỈNH HỘP MÃ CSS CHO Ô MÀU                 */}
       {/* ==================================================== */}
       {cssEditorOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/65 backdrop-blur-xs z-[200] flex items-center justify-center p-4">
           <div className="bg-[#181824] border border-amber-500/40 rounded-2xl w-full max-w-md shadow-2xl p-4 space-y-3 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-2.5">
               <div className="flex items-center gap-2 text-sm font-bold text-amber-300">

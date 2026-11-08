@@ -175,7 +175,7 @@ export function renderInlineMarkdownToHtml(
     }
 
     return pushToken(
-      `<a href="${escapeAttr(cleanHref)}" target="_blank" rel="noopener noreferrer" class="mn-ext-link" data-href="${escapeAttr(cleanHref)}" title="Mở liên kết: ${escapeAttr(cleanHref)}">${escapeHtml(cleanLabel)}</a>`
+      `<a href="${escapeAttr(cleanHref)}" target="_blank" rel="noopener noreferrer" class="mn-ext-link" contenteditable="false" data-href="${escapeAttr(cleanHref)}" data-alias="${escapeAttr(cleanLabel)}" title="Nhấp để mở liên kết: ${escapeAttr(cleanHref)}"><span class="mn-ext-icon">🌐</span><span>${escapeHtml(cleanLabel)}</span></a>`
     );
   });
 
@@ -594,8 +594,14 @@ function serializeInlineNodes(node: Node): string {
   // External links
   if (tag === 'a') {
     const href = el.getAttribute('data-href') || el.getAttribute('href') || '';
-    const childrenMd = Array.from(el.childNodes).map(serializeInlineNodes).join('').trim();
-    return href ? `[${childrenMd || href}](${href})` : childrenMd;
+    const alias =
+      el.getAttribute('data-alias') ||
+      Array.from(el.childNodes)
+        .map(serializeInlineNodes)
+        .join('')
+        .replace(/^🌐\s*/, '')
+        .trim();
+    return href ? `[${alias || href}](${href})` : alias;
   }
 
   if (tag === 'br') {

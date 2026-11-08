@@ -256,18 +256,60 @@ export function App() {
     }
   }, [activeMapId, selectedNodeId]);
 
-  // Chuyển hướng nội bộ khi click link map/note trong bài viết
+  // Chuyển hướng nội bộ khi click link map/note trong bài viết (Hỗ trợ cả ID lẫn Tên ô Wiki-link [[Tên ô]])
   const handleNavigateInternal = useCallback(
     (targetMapId?: string, targetNodeId?: string) => {
-      if (targetMapId && maps.some((m) => m.id === targetMapId)) {
-        setActiveMapId(targetMapId);
+      let destinationMap = activeMap;
+
+      if (targetMapId) {
+        const foundMap = maps.find(
+          (m) =>
+            m.id === targetMapId ||
+            m.name.trim().toLowerCase() === targetMapId.trim().toLowerCase()
+        );
+        if (foundMap) {
+          destinationMap = foundMap;
+          setActiveMapId(foundMap.id);
+        }
       }
+
       if (targetNodeId) {
-        setSelectedNodeId(targetNodeId);
-        setFocusNodeId(targetNodeId);
+        const cleanTarget = targetNodeId.trim();
+        const lowerTarget = cleanTarget.toLowerCase();
+
+        // 1. Tìm trong bản đồ đích trước (theo ID chính xác -> Tên chính xác -> Tên gần đúng)
+        let foundNode =
+          destinationMap.nodes.find((n) => n.id === cleanTarget) ||
+          destinationMap.nodes.find(
+            (n) => (n.data.label || '').trim().toLowerCase() === lowerTarget
+          ) ||
+          destinationMap.nodes.find((n) =>
+            (n.data.label || '').trim().toLowerCase().includes(lowerTarget)
+          );
+
+        // 2. Nếu chưa thấy, tìm xuyên qua tất cả các bản đồ khác
+        if (!foundNode && !targetMapId) {
+          for (const m of maps) {
+            const candidate =
+              m.nodes.find((n) => n.id === cleanTarget) ||
+              m.nodes.find(
+                (n) => (n.data.label || '').trim().toLowerCase() === lowerTarget
+              );
+            if (candidate) {
+              foundNode = candidate;
+              setActiveMapId(m.id);
+              break;
+            }
+          }
+        }
+
+        const resolvedId = foundNode ? foundNode.id : cleanTarget;
+        setSelectedNodeId(resolvedId);
+        setFocusNodeId(resolvedId);
+        setTimeout(() => setFocusNodeId(null), 150);
       }
     },
-    [maps]
+    [activeMap, maps]
   );
 
   // Lắng nghe sự kiện chuyển link từ bất kỳ đâu trên canvas
