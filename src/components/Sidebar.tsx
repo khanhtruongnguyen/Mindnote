@@ -3,6 +3,7 @@ import type { Edge } from '@xyflow/react';
 import type { CustomNode, NodeColor, NodeShape, AppSettings } from '../types';
 import { COLOR_SCHEMES } from '../constants/theme';
 import { UnifiedNoteEditor } from './UnifiedNoteEditor';
+import { ErrorBoundary } from './ErrorBoundary';
 import { AiService } from '../services/aiService';
 import {
   Trash2,
@@ -93,6 +94,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const currentY = useRef(0);
   const startTime = useRef(0);
 
+  // Lắng nghe phím Escape để thoát chế độ Toàn màn hình
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFullscreen) {
+        setIsFullscreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreen]);
+
   // Reset drag position when selectedNode changes
   useEffect(() => {
     setDragOffsetY(0);
@@ -105,17 +117,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { data } = selectedNode;
   const currentColor = data.color || 'purple';
   const currentShape = data.shape || 'pill';
-
-  // Lắng nghe phím Escape để thoát chế độ Toàn màn hình
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isFullscreen) {
-        setIsFullscreen(false);
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isFullscreen]);
 
   const insertTextAtCursor = (textToInsert: string) => {
     const currentVal = data.content || '';
@@ -182,7 +183,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         imageList = [overrideImage];
       } else {
         // Trích xuất hình ảnh đính kèm trong note nếu có
-        const imageRegex = /attachment:([^\s\)]+)/g;
+        const imageRegex = /attachment:([^\s)]+)/g;
         const imageMatches = [...(selectedNode.data.content || '').matchAll(imageRegex)];
         imageList = imageMatches
           .map((m) => attachments[m[1]])
@@ -821,25 +822,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* BỘ SOẠN THẢO DUY NHẤT & HIỂN THỊ TRỰC TIẾP (UNIFIED SINGLE EDITOR) */}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-[#121217]">
-          <UnifiedNoteEditor
-            content={data.content || ''}
-            onChange={(newContent) => onUpdateNode(selectedNode.id, { content: newContent })}
-            attachments={attachments}
-            onSaveAttachment={onSaveAttachment}
-            onOpenLinkModal={() => {
-              const otherNodes = allNodes.filter((n) => n.id !== selectedNode.id);
-              if (otherNodes.length > 0 && !selectedInternalNodeId) {
-                setSelectedInternalNodeId(otherNodes[0].id);
-                setLinkTitle(otherNodes[0].data.label || '');
-              }
-              setShowLinkModal(true);
-            }}
-            onToggleAiWriter={() => setShowAiWriter(!showAiWriter)}
-            showAiWriter={showAiWriter}
-            isFullscreen={isFullscreen}
-            onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
-            isMobile={isMobile}
-          />
+          <ErrorBoundary fallbackTitle="Không thể tải bộ soạn thảo ghi chú">
+            <UnifiedNoteEditor
+              content={data.content || ''}
+              onChange={(newContent) => onUpdateNode(selectedNode.id, { content: newContent })}
+              attachments={attachments}
+              onSaveAttachment={onSaveAttachment}
+              onOpenLinkModal={() => {
+                const otherNodes = allNodes.filter((n) => n.id !== selectedNode.id);
+                if (otherNodes.length > 0 && !selectedInternalNodeId) {
+                  setSelectedInternalNodeId(otherNodes[0].id);
+                  setLinkTitle(otherNodes[0].data.label || '');
+                }
+                setShowLinkModal(true);
+              }}
+              onToggleAiWriter={() => setShowAiWriter(!showAiWriter)}
+              showAiWriter={showAiWriter}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
+              isMobile={isMobile}
+            />
+          </ErrorBoundary>
         </div>
       </aside>
 

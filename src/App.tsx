@@ -6,6 +6,7 @@ import { COLOR_SCHEMES } from './constants/theme';
 import { Header } from './components/Header';
 import { CanvasWorkspace } from './components/CanvasWorkspace';
 import { Sidebar } from './components/Sidebar';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { GistSyncModal } from './components/GistSyncModal';
 import { SupabaseSyncModal } from './components/SupabaseSyncModal';
 import { HelpModal } from './components/HelpModal';
@@ -971,27 +972,32 @@ export function App() {
       </main>
 
       {/* Obsidian Note Detail Sidebar (Bottom Sheet on Mobile) */}
-      <Sidebar
-        selectedNode={selectedNode}
-        activeMapId={activeMapId}
-        allNodes={activeMap.nodes}
-        edges={activeMap.edges}
-        mapName={activeMap.name}
-        mapContext={activeMap.context}
-        onOpenContextModal={() => setIsContextModalOpen(true)}
-        settings={settings}
-        onAddBranchNodes={handleAddBranchNodes}
-        onAddEdge={handleAddEdge}
-        onDeleteEdge={handleDeleteEdge}
-        onSelectNodeById={handleFocusNode}
-        onNavigate={handleNavigateInternal}
-        attachments={activeMap.attachments || {}}
-        isMobile={isMobile}
-        onUpdateNode={handleUpdateNode}
-        onDeleteNode={handleDeleteNode}
-        onClose={() => setSelectedNodeId(null)}
-        onSaveAttachment={handleSaveAttachment}
-      />
+      <ErrorBoundary
+        fallbackTitle="Không thể tải khung chi tiết ghi chú"
+        onReset={() => setSelectedNodeId(null)}
+      >
+        <Sidebar
+          selectedNode={selectedNode}
+          activeMapId={activeMapId}
+          allNodes={activeMap.nodes}
+          edges={activeMap.edges}
+          mapName={activeMap.name}
+          mapContext={activeMap.context}
+          onOpenContextModal={() => setIsContextModalOpen(true)}
+          settings={settings}
+          onAddBranchNodes={handleAddBranchNodes}
+          onAddEdge={handleAddEdge}
+          onDeleteEdge={handleDeleteEdge}
+          onSelectNodeById={handleFocusNode}
+          onNavigate={handleNavigateInternal}
+          attachments={activeMap.attachments || {}}
+          isMobile={isMobile}
+          onUpdateNode={handleUpdateNode}
+          onDeleteNode={handleDeleteNode}
+          onClose={() => setSelectedNodeId(null)}
+          onSaveAttachment={handleSaveAttachment}
+        />
+      </ErrorBoundary>
 
       {/* Supabase Cloud Sync Modal */}
       <SupabaseSyncModal

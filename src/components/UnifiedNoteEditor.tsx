@@ -350,13 +350,14 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   }
 
   const codeBoxes = useMemo(() => {
+    const safeContent = content || '';
     const boxes: CodeBoxItem[] = [];
     let idCounter = 0;
 
     // 1. Nhận diện khối ```box ... ```
     const boxBlockRegex = /```box\s*([\s\S]*?)```/g;
     let match: RegExpExecArray | null;
-    while ((match = boxBlockRegex.exec(content)) !== null) {
+    while ((match = boxBlockRegex.exec(safeContent)) !== null) {
       const inner = match[1];
       const styleMatch = inner.match(/style:\s*([^\n]+)/);
       const titleMatch = inner.match(/title:\s*([^\n]+)/);
@@ -374,7 +375,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
 
     // 2. Nhận diện các thẻ <div style="...">...</div> kiểu cũ
     const htmlDivRegex = /<div\s+style="([^"]+)">([\s\S]*?)<\/div>/g;
-    while ((match = htmlDivRegex.exec(content)) !== null) {
+    while ((match = htmlDivRegex.exec(safeContent)) !== null) {
       boxes.push({
         id: idCounter++,
         raw: match[0],
@@ -422,13 +423,14 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   }
 
   const mathFormulas = useMemo(() => {
+    const safeContent = content || '';
     const list: MathItem[] = [];
     const seen = new Set<string>();
 
     // Khối toán lớn $$...$$
     const blockRegex = /\$\$([\s\S]+?)\$\$/g;
     let m: RegExpExecArray | null;
-    while ((m = blockRegex.exec(content)) !== null) {
+    while ((m = blockRegex.exec(safeContent)) !== null) {
       const formula = m[1].trim();
       if (!seen.has(formula)) {
         seen.add(formula);
@@ -437,8 +439,8 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
     }
 
     // Công thức toán dòng $...$
-    const inlineRegex = /\$([^\$\n]+)\$/g;
-    while ((m = inlineRegex.exec(content)) !== null) {
+    const inlineRegex = /\$([^$\n]+)\$/g;
+    while ((m = inlineRegex.exec(safeContent)) !== null) {
       const formula = m[1].trim();
       if (!seen.has(formula) && !m[0].startsWith('$$')) {
         seen.add(formula);
