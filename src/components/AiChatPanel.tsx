@@ -181,9 +181,12 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   const currentApiKey =
     settings.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
 
-  // Helper to remove ```json:agent-action code block from natural text display
+  // Helper to remove ```json:agent-action code block from natural text display (both complete & streaming)
   const stripAgentActionCodeBlock = (content: string): string => {
-    return content.replace(/```(?:json:agent-action|json)[\s\S]*?```/gi, '').trim();
+    return content
+      .replace(/```(?:json:agent-action|json)[\s\S]*?```/gi, '')
+      .replace(/```(?:json:agent-action)[\s\S]*$/gi, '\n\n> 🛠️ *AI Agent đang đóng gói cấu trúc các ô ghi chú & đường nối...*')
+      .trim();
   };
 
   // Quick Prompt Prompts for Chat Mode
@@ -973,7 +976,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
 
                 {streamingContent ? (
                   <MarkdownRenderer
-                    content={cleanAiOutput(streamingContent)}
+                    content={stripAgentActionCodeBlock(cleanAiOutput(streamingContent))}
                     attachments={activeMap.attachments}
                     onNodeClick={onFocusNode}
                   />

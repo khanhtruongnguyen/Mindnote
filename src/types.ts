@@ -24,6 +24,30 @@ export interface MindMapNodeData {
 
 export type CustomNode = Node<MindMapNodeData, 'mindmap'>;
 
+export interface FlashcardItem {
+  id: string;
+  question: string;
+  answer: string;
+  sourceNodeId?: string;
+  sourceNodeLabel?: string;
+  status: 'new' | 'learning' | 'mastered';
+  createdAt: number;
+  lastReviewedAt?: number;
+}
+
+export interface SplitNodeBranch {
+  label: string;
+  content: string;
+  color?: NodeColor;
+  shape?: NodeShape;
+}
+
+export interface SplitNodeResult {
+  remainingParentContent: string;
+  branches: SplitNodeBranch[];
+  summary?: string;
+}
+
 export interface MapData {
   id: string;
   name: string;
@@ -31,6 +55,8 @@ export interface MapData {
   edges: Edge[];
   context?: string; // Ngữ cảnh sổ tay / Kiến thức nền của Map dành cho AI
   attachments?: Record<string, string>; // attachmentId -> base64
+  attachmentCaptions?: Record<string, string>; // attachmentId -> Bản tóm tắt AI cho hình ảnh đính kèm
+  flashcards?: FlashcardItem[]; // Bộ thẻ Flashcard ôn tập của bản đồ
   createdAt: number;
   updatedAt: number;
 }

@@ -23,6 +23,8 @@ import {
   FolderOpen,
   FileText,
   Zap,
+  BookOpen,
+  RotateCcw,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -38,6 +40,10 @@ interface HeaderProps {
   onAddNode: () => void;
   onOpenConnectModal?: () => void;
   onOpenContextModal?: () => void;
+  onOpenFlashcardModal?: () => void;
+  onAutoLayoutMap?: () => void;
+  canUndoMap?: boolean;
+  onUndoMap?: () => void;
   hasContext?: boolean;
   onExportBackup: () => void;
   onExportSingleMap: (map: MapData) => void;
@@ -67,6 +73,10 @@ export const Header: React.FC<HeaderProps> = ({
   onAddNode,
   onOpenConnectModal,
   onOpenContextModal,
+  onOpenFlashcardModal,
+  onAutoLayoutMap,
+  canUndoMap = false,
+  onUndoMap,
   hasContext = false,
   onExportBackup,
   onExportSingleMap,
@@ -303,6 +313,47 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right Controls */}
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          {/* Nút Hoàn tác (Undo) khi vừa chạy AI Agent / Tách nhánh / Sắp xếp Map */}
+          {canUndoMap && onUndoMap && (
+            <button
+              onClick={onUndoMap}
+              title="Hoàn tác (Undo) thao tác thay đổi sơ đồ vừa rồi"
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-950/50 hover:bg-amber-900/70 border border-amber-500/40 text-amber-200 text-xs font-semibold shadow-md transition-all hover:scale-[1.02] cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden lg:inline">Hoàn tác</span>
+            </button>
+          )}
+
+          {/* Nút Sắp xếp gọn Map theo hình cây (Desktop) */}
+          {!isMobile && onAutoLayoutMap && activeMap.nodes.length > 1 && (
+            <button
+              onClick={onAutoLayoutMap}
+              title="Tự động sắp xếp gọn các ô theo cấu trúc Hình cây phân tầng (Smart Tree Layout)"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-300 hover:text-white hover:border-cyan-500/40 text-xs font-semibold shadow-md transition-all hover:scale-[1.02] cursor-pointer"
+            >
+              <GitBranch className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="hidden xl:inline">Xếp cây</span>
+            </button>
+          )}
+
+          {/* Nút Flashcard Ôn tập AI (Desktop) */}
+          {!isMobile && onOpenFlashcardModal && (
+            <button
+              onClick={onOpenFlashcardModal}
+              title="Chọn nhiều ô trên bản đồ để AI tạo & lưu bộ Flashcard ôn tập"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1c1c25] border border-[#2e2e3d] text-zinc-200 hover:text-white hover:border-purple-500/50 text-xs font-semibold shadow-md transition-all hover:scale-[1.02] cursor-pointer"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-purple-400" />
+              <span>Flashcard</span>
+              {(activeMap.flashcards?.length || 0) > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-purple-600/30 border border-purple-500/40 text-purple-200 text-[10px]">
+                  {activeMap.flashcards?.length}
+                </span>
+              )}
+            </button>
+          )}
+
           {/* Ngữ cảnh Sổ tay Map (Desktop) */}
           {!isMobile && (
             <button
@@ -617,6 +668,39 @@ export const Header: React.FC<HeaderProps> = ({
                   <Sparkles className="w-4 h-4 text-purple-400 animate-pulse" />
                   <span className="font-semibold">Trợ lý Mind Map AI</span>
                 </button>
+
+                {onOpenFlashcardModal && (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onOpenFlashcardModal();
+                    }}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                  >
+                    <span className="flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-purple-400" />
+                      <span>Flashcard Ôn Tập AI</span>
+                    </span>
+                    {(activeMap.flashcards?.length || 0) > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full bg-purple-600/30 text-purple-200 text-[10px]">
+                        {activeMap.flashcards?.length}
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                {onAutoLayoutMap && activeMap.nodes.length > 1 && (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onAutoLayoutMap();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-zinc-200 hover:bg-[#252535] transition-colors"
+                  >
+                    <GitBranch className="w-4 h-4 text-cyan-400" />
+                    <span>Sắp xếp gọn Map (Xếp cây)</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => {

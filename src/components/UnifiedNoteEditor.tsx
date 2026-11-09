@@ -34,8 +34,12 @@ import {
   Eye,
   Compass,
   Globe,
+  Wand2,
+  Loader2,
+  Check,
 } from 'lucide-react';
-import type { CustomNode } from '../types';
+import type { CustomNode, AppSettings } from '../types';
+import { AiService } from '../services/aiService';
 import {
   CODE_BOX_PRESETS,
   markdownToHtml,
@@ -53,6 +57,9 @@ interface UnifiedNoteEditorProps {
   onSaveAttachment?: (id: string, base64: string) => void;
   allNodes?: CustomNode[];
   currentNodeId?: string;
+  nodeLabel?: string;
+  mapContext?: string;
+  settings?: AppSettings;
   onOpenLinkModal?: () => void;
   onToggleAiWriter?: () => void;
   showAiWriter?: boolean;
@@ -115,6 +122,9 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   onSaveAttachment,
   allNodes = [],
   currentNodeId,
+  nodeLabel = 'Ghi chú',
+  mapContext,
+  settings,
   onToggleAiWriter,
   showAiWriter = false,
   isFullscreen = false,
@@ -132,6 +142,13 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   const [colorMenuOpen, setColorMenuOpen] = useState(false);
   const [boxMenuOpen, setBoxMenuOpen] = useState(false);
   const [sourceMode, setSourceMode] = useState(false);
+
+  // Inline AI Selection State (Bôi đen sửa nhanh & tự gắn Wiki-link)
+  const [selectedTextForAi, setSelectedTextForAi] = useState<string>('');
+  const [inlineAiLoading, setInlineAiLoading] = useState(false);
+  const [inlineAiResult, setInlineAiResult] = useState<string | null>(null);
+  const [inlineAiError, setInlineAiError] = useState<string | null>(null);
+  const [inlineCustomPrompt, setInlineCustomPrompt] = useState('');
 
   // Math Editor Popover State
   const [mathModalOpen, setMathModalOpen] = useState(false);
@@ -196,6 +213,14 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
     if (editorRef.current && editorRef.current.contains(range.commonAncestorContainer)) {
       savedRangeRef.current = range.cloneRange();
 
+      // Detect selected text for Inline AI
+      const selectedStr = sel.isCollapsed ? '' : sel.toString().trim();
+      if (selectedStr.length >= 2) {
+        setSelectedTextForAi(selectedStr);
+      } else if (!inlineAiLoading && !inlineAiResult) {
+        setSelectedTextForAi('');
+      }
+
       // Detect if cursor is inside a Callout Box or Table
       const targetNode =
         range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
@@ -210,7 +235,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       setActiveTableEl(table);
       setActiveCellEl(cell);
     }
-  }, []);
+  }, [inlineAiLoading, inlineAiResult]);
 
   const restoreSelection = useCallback(() => {
     const el = editorRef.current;
@@ -238,6 +263,76 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       saveSelection();
     },
     [restoreSelection, emitChanges, saveSelection]
+  );
+
+  // Run Inline AI on currently selected text
+  const handleRunInlineAi = useCallback(
+    async (
+      action: 'expand' | 'summarize' | 'katex' | 'table_box' | 'wikilink' | 'polish' | 'custom'
+    ) => {
+      const targetText = selectedTextForAi.trim();
+      if (!targetText || inlineAiLoading) return;
+
+      setInlineAiLoading(true);
+      setInlineAiError(null);
+      setInlineAiResult(null);
+
+      try {
+        const baseUrl = settings?.aiBaseUrl || 'https://api.xah.io/v1';
+        const apiKey =
+          settings?.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
+        const model = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
+
+        const otherLabels = allNodes
+          .filter((n) => n.id !== currentNodeId && n.data.label)
+          .map((n) => n.data.label);
+
+        const result = await AiService.inlineEditSelection({
+          baseUrl,
+          apiKey,
+          model,
+          selectedText: targetText,
+          action,
+          customPrompt: inlineCustomPrompt.trim(),
+          nodeLabel,
+          allNodeLabels: otherLabels,
+          mapContext,
+        });
+
+        setInlineAiResult(result);
+      } catch (err: unknown) {
+        const e = err as Error;
+        setInlineAiError(e.message || 'Lỗi khi chạy Inline AI');
+      } finally {
+        setInlineAiLoading(false);
+      }
+    },
+    [selectedTextForAi, inlineAiLoading, settings, allNodes, currentNodeId, inlineCustomPrompt, nodeLabel, mapContext]
+  );
+
+  // Apply Inline AI result directly at the highlighted selection
+  const handleApplyInlineAi = useCallback(
+    (mode: 'replace' | 'append') => {
+      if (!inlineAiResult) return;
+      const htmlSnippet = markdownToHtml(inlineAiResult, attachments);
+      restoreSelection();
+      if (mode === 'append' && savedRangeRef.current) {
+        const r = savedRangeRef.current.cloneRange();
+        r.collapse(false);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(r);
+        document.execCommand('insertHTML', false, `<br>${htmlSnippet}`);
+      } else {
+        document.execCommand('insertHTML', false, htmlSnippet);
+      }
+      emitChanges();
+      setInlineAiResult(null);
+      setInlineAiError(null);
+      setSelectedTextForAi('');
+      setInlineCustomPrompt('');
+    },
+    [inlineAiResult, attachments, restoreSelection, emitChanges]
   );
 
   // Standard Rich Text Commands (Bold, Italic, Underline, Strikethrough)
@@ -1405,6 +1500,156 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
           )}
         </div>
       </div>
+
+      {/* ==================================================== */}
+      {/* THANH INLINE AI KHI BÔI ĐEN VĂN BẢN TRONG TRANG VIẾT  */}
+      {/* ==================================================== */}
+      {selectedTextForAi && !sourceMode && (
+        <div className="px-3.5 py-2 bg-gradient-to-r from-[#1a162b] to-[#161829] border-b border-purple-500/40 text-xs space-y-2 animate-in fade-in duration-100 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-1.5">
+            <div className="flex items-center gap-1.5 text-purple-300 font-bold">
+              <Wand2 className="w-3.5 h-3.5 text-purple-400 animate-pulse" />
+              <span>Inline AI (Đang bôi đen {selectedTextForAi.length} ký tự):</span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                disabled={inlineAiLoading}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleRunInlineAi('expand')}
+                className="px-2 py-0.5 rounded-md bg-purple-600/20 hover:bg-purple-600/35 text-purple-200 border border-purple-500/35 text-[11px] font-medium cursor-pointer disabled:opacity-50"
+              >
+                🪄 Viết sâu hơn
+              </button>
+              <button
+                type="button"
+                disabled={inlineAiLoading}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleRunInlineAi('summarize')}
+                className="px-2 py-0.5 rounded-md bg-purple-600/20 hover:bg-purple-600/35 text-purple-200 border border-purple-500/35 text-[11px] font-medium cursor-pointer disabled:opacity-50"
+              >
+                📋 Tóm tắt
+              </button>
+              <button
+                type="button"
+                disabled={inlineAiLoading}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleRunInlineAi('katex')}
+                className="px-2 py-0.5 rounded-md bg-cyan-600/20 hover:bg-cyan-600/35 text-cyan-200 border border-cyan-500/35 text-[11px] font-medium cursor-pointer disabled:opacity-50"
+              >
+                📐 Chuẩn KaTeX
+              </button>
+              <button
+                type="button"
+                disabled={inlineAiLoading}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleRunInlineAi('table_box')}
+                className="px-2 py-0.5 rounded-md bg-amber-600/20 hover:bg-amber-600/35 text-amber-200 border border-amber-500/35 text-[11px] font-medium cursor-pointer disabled:opacity-50"
+              >
+                📊 Bảng / Khung
+              </button>
+              <button
+                type="button"
+                disabled={inlineAiLoading}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleRunInlineAi('wikilink')}
+                title="Tự động gắn [[Wiki-link]] nối tới các ô liên quan trong bản đồ"
+                className="px-2 py-0.5 rounded-md bg-emerald-600/20 hover:bg-emerald-600/35 text-emerald-200 border border-emerald-500/35 text-[11px] font-medium cursor-pointer disabled:opacity-50"
+              >
+                🔗 Gắn [[Wiki-link]]
+              </button>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setSelectedTextForAi('');
+                  setInlineAiResult(null);
+                  setInlineAiError(null);
+                }}
+                title="Đóng thanh Inline AI"
+                className="p-1 rounded text-zinc-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Ô gõ lệnh tùy ý cho vùng đang bôi đen */}
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={inlineCustomPrompt}
+              onChange={(e) => setInlineCustomPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleRunInlineAi('custom');
+                }
+              }}
+              placeholder="Hoặc gõ lệnh riêng cho đoạn đang chọn (vd: Dịch sang tiếng Việt, cho ví dụ minh họa...)"
+              className="flex-1 bg-[#11111a] border border-[#2d2d44] focus:border-purple-500 rounded-lg px-2.5 py-1 text-[11px] text-zinc-200 outline-none"
+            />
+            <button
+              type="button"
+              disabled={inlineAiLoading || !inlineCustomPrompt.trim()}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => handleRunInlineAi('custom')}
+              className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-white text-[11px] font-semibold cursor-pointer shrink-0"
+            >
+              Sửa đoạn này
+            </button>
+          </div>
+
+          {inlineAiLoading && (
+            <div className="flex items-center gap-2 text-[11px] text-purple-300 py-1">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>AI đang xử lý đoạn văn bản bạn chọn...</span>
+            </div>
+          )}
+
+          {inlineAiError && (
+            <div className="text-[11px] text-rose-300 bg-rose-950/40 border border-rose-500/30 rounded-lg px-2.5 py-1">
+              ⚠️ {inlineAiError}
+            </div>
+          )}
+
+          {inlineAiResult && !inlineAiLoading && (
+            <div className="p-2.5 rounded-xl bg-[#11111a] border border-purple-500/40 space-y-2">
+              <div className="text-[11px] text-zinc-300 max-h-32 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed">
+                {inlineAiResult}
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-1 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setInlineAiResult(null)}
+                  className="px-2.5 py-1 rounded-lg text-[11px] text-zinc-400 hover:text-white cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleApplyInlineAi('append')}
+                  className="px-2.5 py-1 rounded-lg bg-[#242438] hover:bg-[#2f2f48] text-purple-200 border border-purple-500/30 text-[11px] font-medium cursor-pointer"
+                >
+                  + Chèn bên dưới
+                </button>
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => handleApplyInlineAi('replace')}
+                  className="flex items-center gap-1 px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-[11px] font-bold shadow-sm cursor-pointer"
+                >
+                  <Check className="w-3 h-3" />
+                  <span>Thay thế đoạn bôi đen</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ==================================================== */}
       {/* THANH CÔNG CỤ NGỮ CẢNH KHI ĐANG ĐẶT CON TRỎ TRONG Ô MÀU */}

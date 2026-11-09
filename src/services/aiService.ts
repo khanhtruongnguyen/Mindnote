@@ -1,10 +1,10 @@
-import type { MapData, AgentAction } from '../types';
+import type { MapData, AgentAction, CustomNode, SplitNodeResult, FlashcardItem } from '../types';
 
 export interface StreamChatOptions {
   baseUrl: string;
   apiKey: string;
   model: string;
-  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+  messages: Array<{ role: 'system' | 'user' | 'assistant'; content: unknown }>;
   onChunk: (contentChunk: string, fullContent: string) => void;
   onReasoning?: (reasoningChunk: string, fullReasoning: string) => void;
   signal?: AbortSignal;
@@ -25,6 +25,66 @@ export function cleanAiOutput(text: string): string {
   // 2. Loại bỏ các dòng kiểm tra hệ thống tiếng Trung (Vấn đề, Sửa đổi, Phương pháp, Xác minh)
   cleaned = cleaned.replace(/(?:^|\n+)(?:问题|改动|方法|验证)\s*—[\s\S]*$/g, '');
   return cleaned.trimEnd();
+}
+
+/**
+ * Chuyển đổi mindnote-asset:// sang Base64 trong bộ nhớ RAM cho API AI nếu chạy bản Desktop
+ */
+export async function resolveImageForAi(img: string): Promise<string> {
+  if (!img) return img;
+  if (img.startsWith('mindnote-asset://')) {
+    try {
+      const r = await fetch(img);
+      const blob = await r.blob();
+      return await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve((reader.result as string) || img);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return img;
+    }
+  }
+  return img;
+}
+
+/**
+ * Nhúng bản tóm tắt hình ảnh (attachmentCaptions) ngay dưới mỗi thẻ ![...](attachment:id)
+ * để AI luôn "nhìn" và hiểu được nội dung hình ảnh trong ô mà không tốn băng thông gửi lại file ảnh.
+ */
+export function injectAttachmentCaptionsIntoContent(
+  content: string,
+  attachmentCaptions?: Record<string, string>
+): string {
+  if (!content) return '(trống)';
+  return content.replace(/!\[([^\]]*)\]\(attachment:([^\s)]+)\)/g, (fullMatch, alt, attachId) => {
+    const caption = attachmentCaptions?.[attachId]?.trim();
+    if (caption) {
+      return `${fullMatch}\n> 🖼️ **[Bản tóm tắt AI của ảnh ${attachId}${alt ? ` (${alt})` : ''}]:** ${caption}`;
+    }
+    return `${fullMatch}\n> 🖼️ *[Ảnh đính kèm ${attachId} — chưa tạo bản tóm tắt AI]*`;
+  });
+}
+
+/**
+ * Sửa lỗi JSON.parse khi AI sinh công thức LaTeX (\frac, \alpha, \sum...) bên trong chuỗi JSON mà quên escape \\
+ */
+function safeParseAiJson<T>(rawJsonStr: string): T | null {
+  const trimmed = rawJsonStr.trim();
+  try {
+    return JSON.parse(trimmed) as T;
+  } catch {
+    try {
+      // Bảo vệ các escape hợp lệ của JSON (\", \\, \/, \n, \r, \t) nhưng escape các lệnh LaTeX như \frac, \beta, \times, \sqrt...
+      const fixed = trimmed.replace(
+        /\\(?!["\\/]|u[0-9a-fA-F]{4}|n(?![a-zA-Z])|r(?![a-zA-Z])|t(?![a-zA-Z])|b(?![a-zA-Z])|f(?![a-zA-Z]))/g,
+        '\\\\'
+      );
+      return JSON.parse(fixed) as T;
+    } catch {
+      return null;
+    }
+  }
 }
 
 export const AiService = {
@@ -69,31 +129,41 @@ export const AiService = {
   },
 
   /**
-   * Tạo system prompt cung cấp toàn bộ ngữ cảnh Mind Map cho AI
+   * Tạo system prompt cung cấp toàn bộ ngữ cảnh Mind Map (kèm bản tóm tắt ảnh đính kèm) cho AI
    */
   buildMindMapSystemPrompt(mapData: MapData): string {
-    const nodesInfo = mapData.nodes.map((node, index) => {
-      return `[Node #${index + 1}]
+    const nodesInfo = mapData.nodes
+      .map((node, index) => {
+        const enrichedContent = injectAttachmentCaptionsIntoContent(
+          node.data.content || '(trống)',
+          mapData.attachmentCaptions
+        );
+        return `[Node #${index + 1}]
 - ID: "${node.id}"
 - Tiêu đề: "${node.data.label || 'Chưa đặt tên'}"
 - Dạng hình: ${node.data.shape || 'pill'}, Màu sắc: ${node.data.color || 'purple'}
 - Tọa độ: x=${Math.round(node.position.x)}, y=${Math.round(node.position.y)}
-- Nội dung chi tiết:
-${node.data.content || '(trống)'}
+- Nội dung chi tiết (kèm mô tả hình ảnh nếu có):
+${enrichedContent}
 ----------------------------------------`;
-    }).join('\n');
+      })
+      .join('\n');
 
-    const edgesInfo = mapData.edges.length > 0
-      ? mapData.edges.map((edge) => {
-          const sourceNode = mapData.nodes.find((n) => n.id === edge.source);
-          const targetNode = mapData.nodes.find((n) => n.id === edge.target);
-          return `- "${sourceNode?.data.label || edge.source}" (id: ${edge.source}) ➔ "${targetNode?.data.label || edge.target}" (id: ${edge.target})`;
-        }).join('\n')
-      : '(Hiện tại các nút chưa có liên kết mũi tên nào)';
+    const edgesInfo =
+      mapData.edges.length > 0
+        ? mapData.edges
+            .map((edge) => {
+              const sourceNode = mapData.nodes.find((n) => n.id === edge.source);
+              const targetNode = mapData.nodes.find((n) => n.id === edge.target);
+              return `- "${sourceNode?.data.label || edge.source}" (id: ${edge.source}) ➔ "${targetNode?.data.label || edge.target}" (id: ${edge.target})`;
+            })
+            .join('\n')
+        : '(Hiện tại các nút chưa có liên kết mũi tên nào)';
 
-    const contextSection = mapData.context && mapData.context.trim()
-      ? `\n=== NGỮ CẢNH SỔ TAY / KIẾN THỨC NỀN CỦA BẢN ĐỒ ===\n${mapData.context.trim()}\n(LƯU Ý: Đây là giáo trình, tài liệu chuyên môn và hướng dẫn nền tảng do sinh viên cung cấp cho bản đồ này. Mọi phân tích, giải thích và gợi ý BẮT BUỘC phải dựa trên ngữ cảnh chuyên môn này!)\n`
-      : '';
+    const contextSection =
+      mapData.context && mapData.context.trim()
+        ? `\n=== NGỮ CẢNH SỔ TAY / KIẾN THỨC NỀN CỦA BẢN ĐỒ ===\n${mapData.context.trim()}\n(LƯU Ý: Đây là giáo trình, tài liệu chuyên môn và hướng dẫn nền tảng do sinh viên cung cấp cho bản đồ này. Mọi phân tích, giải thích và gợi ý BẮT BUỘC phải dựa trên ngữ cảnh chuyên môn này!)\n`
+        : '';
 
     return `Bạn là một trợ lý AI thông minh chuyên phân tích, giải thích, tóm tắt và mở rộng Sơ đồ tư duy (Mind Map).
 Người dùng đang làm việc trên sơ đồ tư duy có tên: "${mapData.name}".
@@ -122,30 +192,47 @@ ${nodesInfo}
 
   /**
    * Tạo system prompt cho chế độ AI Agent (Tự động xây dựng, mở rộng và chỉnh sửa Mind Map)
+   * Đã nâng cấp: Cung cấp đầy đủ nội dung và mô tả ảnh của các ô hiện có để Agent không làm mất dữ liệu cũ!
    */
   buildAgentSystemPrompt(mapData: MapData): string {
-    const nodesSummary = mapData.nodes.length > 0
-      ? mapData.nodes.map((n, idx) => `- #${idx + 1} ID: "${n.id}", Tiêu đề: "${n.data.label || 'Chưa đặt tên'}", Dạng: ${n.data.shape || 'pill'}, Màu: ${n.data.color || 'purple'}`).join('\n')
-      : '(Bản đồ hiện đang trống, chưa có ô ghi chú nào)';
+    const nodesSummary =
+      mapData.nodes.length > 0
+        ? mapData.nodes
+            .map((n, idx) => {
+              const enrichedContent = injectAttachmentCaptionsIntoContent(
+                n.data.content || '(trống)',
+                mapData.attachmentCaptions
+              );
+              return `[Ô #${idx + 1}] ID: "${n.id}" | Tiêu đề: "${n.data.label || 'Chưa đặt tên'}" | Dạng: ${n.data.shape || 'pill'} | Màu: ${n.data.color || 'purple'}
+Nội dung hiện có:
+${enrichedContent}
+----------------------------------------`;
+            })
+            .join('\n')
+        : '(Bản đồ hiện đang trống, chưa có ô ghi chú nào)';
 
-    const edgesSummary = mapData.edges.length > 0
-      ? mapData.edges.map(e => {
-          const src = mapData.nodes.find(n => n.id === e.source)?.data.label || e.source;
-          const tgt = mapData.nodes.find(n => n.id === e.target)?.data.label || e.target;
-          return `- "${src}" ➔ "${tgt}" (id: ${e.id})`;
-        }).join('\n')
-      : '(Chưa có liên kết nối nào)';
+    const edgesSummary =
+      mapData.edges.length > 0
+        ? mapData.edges
+            .map((e) => {
+              const src = mapData.nodes.find((n) => n.id === e.source)?.data.label || e.source;
+              const tgt = mapData.nodes.find((n) => n.id === e.target)?.data.label || e.target;
+              return `- "${src}" (${e.source}) ➔ "${tgt}" (${e.target})`;
+            })
+            .join('\n')
+        : '(Chưa có liên kết nối nào)';
 
-    const contextSection = mapData.context && mapData.context.trim()
-      ? `\n=== ĐỀ CƯƠNG / NGỮ CẢNH SỔ TAY CỦA BẢN ĐỒ ===\n${mapData.context.trim()}\n(LƯU Ý CỰC KỲ QUAN TRỌNG: Đây là đề cương, bài giảng hoặc tài liệu môn học do người dùng cung cấp. Bạn BẮT BUỘC phải đọc kỹ để phân tích và trích xuất cấu trúc kiến thức đầy đủ, khoa học nhất cho sơ đồ!)\n`
-      : '\n(Bản đồ hiện chưa có đề cương trong ngữ cảnh. Bạn hãy xây dựng sơ đồ dựa trên yêu cầu trực tiếp của người dùng.)\n';
+    const contextSection =
+      mapData.context && mapData.context.trim()
+        ? `\n=== ĐỀ CƯƠNG / NGỮ CẢNH SỔ TAY CỦA BẢN ĐỒ ===\n${mapData.context.trim()}\n(LƯU Ý CỰC KỲ QUAN TRỌNG: Đây là đề cương, bài giảng hoặc tài liệu môn học do người dùng cung cấp. Bạn BẮT BUỘC phải đọc kỹ để phân tích và trích xuất cấu trúc kiến thức đầy đủ, khoa học nhất cho sơ đồ!)\n`
+        : '\n(Bản đồ hiện chưa có đề cương trong ngữ cảnh. Bạn hãy xây dựng sơ đồ dựa trên yêu cầu trực tiếp của người dùng và các ô hiện có.)\n';
 
     return `Bạn là NexusNotes AI Agent — Kỹ sư & Kiến trúc sư Sơ đồ tư duy Tự động (Autonomous Mind Map Architect & Builder).
 Nhiệm vụ của bạn là: Lắng nghe mệnh lệnh người dùng, phân tích đề cương/ngữ cảnh và TRỰC TIẾP XÂY DỰNG, THÊM BỚT HOẶC TỔ CHỨC LẠI BẢN ĐỒ CHO NGƯỜI DÙNG.
 
 Tên bản đồ hiện tại: "${mapData.name}"
 ${contextSection}
-=== CẤU TRÚC BẢN ĐỒ HIỆN TẠI ===
+=== CẤU TRÚC & NỘI DUNG BẢN ĐỒ HIỆN TẠI ===
 * Danh sách các ô ghi chú (${mapData.nodes.length}):
 ${nodesSummary}
 
@@ -156,18 +243,17 @@ ${edgesSummary}
 1. NGÔN NGỮ: BẮT BUỘC 100% TIẾNG VIỆT tự nhiên, chu đáo, giải thích rõ cấu trúc bạn thiết kế. Tuyệt đối không dùng tiếng Trung. Không xuất hiện [ATLAS-OK] hay metadata ở cuối.
 2. CHẤT LƯỢNG NỘI DUNG TỪNG Ô:
    - "label": Ngắn gọn, súc tích (dưới 40 ký tự), thể hiện rõ chủ đề/khái niệm.
-   - "content": Nội dung Markdown phong phú, bao gồm giải thích định nghĩa, công thức KaTeX ($...$ và $$...$$), bullet points, và khung ghi chú (> 📌 Điểm mấu chốt). Không viết nội dung sơ sài!
+   - "content": Nội dung Markdown phong phú, bao gồm giải thích định nghĩa, công thức KaTeX ($...$ và $$...$$), bullet points, và khung ghi chú (> 📌 Điểm mấu chốt). Nếu sửa ô cũ có chứa thẻ ảnh ![...](attachment:...), BẮT BUỘC giữ nguyên thẻ ảnh ![...](attachment:...) đó trong content (không chép lại dòng "> 🖼️ [Bản tóm tắt AI...]" vào content).
    - "color": 'purple' | 'blue' | 'emerald' | 'amber' | 'rose' | 'cyan' (chọn màu đồng bộ theo từng nhánh hoặc chủ đề).
    - "shape": 'card' (thẻ thông tin đẹp) hoặc 'full' (ô chi tiết toàn bộ công thức) hoặc 'pill' (thẻ nhãn ngắn).
-3. ĐƯỜNG NỐI (EDGES): Xác định đường nối logic giữa các ô:
-   - Từ ô chủ đề chính (source) trỏ đến các ô nhánh con (target).
-   - Các đường liên kết chéo giữa các kiến thức có mối tương quan.
+3. ĐƯỜNG NỐI (EDGES): Xác định đường nối phân cấp hình cây logic giữa các ô:
+   - Từ ô chủ đề chính (source) trỏ đến các ô nhánh cấp 1 (target), từ nhánh cấp 1 trỏ đến nhánh cấp 2.
 4. ĐỊNH DẠNG XUẤT LỆNH BẮT BUỘC CHO HỆ THỐNG THỰC THI:
    Ở cuối câu trả lời, bạn BẮT BUỘC phải xuất ra một khối JSON code block với cú pháp:
 \`\`\`json:agent-action
 {
   "type": "create_map" | "modify_map",
-  "summary": "Tóm tắt ngắn gọn những gì bạn đã tạo/sửa (vd: Đã tạo 5 chủ đề chính và 8 liên kết từ đề cương Giải Tích 1)",
+  "summary": "Tóm tắt ngắn gọn những gì bạn đã tạo/sửa (vd: Đã tạo 5 chủ đề chính và 8 liên kết từ đề cương)",
   "nodes": [
     {
       "id": "node-1",
@@ -186,25 +272,28 @@ ${edgesSummary}
 }
 \`\`\`
 - Nếu người dùng yêu cầu: "tạo map từ đề cương", "xây lại bản đồ", hoặc bản đồ đang trống: Đặt "type": "create_map".
-- Nếu người dùng yêu cầu: "thêm nhánh", "sửa một vài ô", "nối thêm": Đặt "type": "modify_map".
-- Hãy tự đặt "id" cho các node logic (ví dụ "node-taylor", "node-lagrange", "node-fourier", v.v.) và dùng các id này trong mảng "edges" để liên kết chính xác.`;
+- Nếu người dùng yêu cầu: "thêm nhánh", "sửa một vài ô", "nối thêm": Đặt "type": "modify_map" (giữ đúng "id" của các ô hiện có khi nối hoặc cập nhật).`;
   },
 
   /**
-   * Trích xuất AgentAction từ phản hồi của AI
+   * Trích xuất AgentAction từ phản hồi của AI (Hỗ trợ tự sửa lỗi escape LaTeX trong JSON)
    */
   extractAgentAction(content: string): AgentAction | null {
     if (!content) return null;
     try {
-      // Tìm khối ```json:agent-action hoặc ```json
-      const match = content.match(/```(?:json:agent-action|json)\s*([\s\S]*?)```/)
-        || content.match(/\{[\s\S]*"type"\s*:\s*"(?:create_map|modify_map)"[\s\S]*"nodes"\s*:\s*\[[\s\S]*\][\s\S]*\}/);
-      
+      const match =
+        content.match(/```(?:json:agent-action|json)\s*([\s\S]*?)```/) ||
+        content.match(/\{[\s\S]*"type"\s*:\s*"(?:create_map|modify_map)"[\s\S]*"nodes"\s*:\s*\[[\s\S]*\][\s\S]*\}/);
+
       if (!match) return null;
       const jsonStr = match[1] || match[0];
-      const parsed = JSON.parse(jsonStr.trim());
-      if (parsed && (parsed.type === 'create_map' || parsed.type === 'modify_map') && Array.isArray(parsed.nodes)) {
-        return parsed as AgentAction;
+      const parsed = safeParseAiJson<AgentAction>(jsonStr);
+      if (
+        parsed &&
+        (parsed.type === 'create_map' || parsed.type === 'modify_map') &&
+        Array.isArray(parsed.nodes)
+      ) {
+        return parsed;
       }
     } catch {
       // ignore JSON parse errors during streaming
@@ -245,7 +334,6 @@ ${edgesSummary}
       throw new Error(err.error?.message || err.message || `Lỗi API (${response.status})`);
     }
 
-    // Nếu không có response body (môi trường đặc biệt)
     if (!response.body) {
       throw new Error('API không hỗ trợ ReadableStream response body.');
     }
@@ -307,6 +395,78 @@ ${edgesSummary}
   },
 
   /**
+   * AI Tạo Bản Tóm Tắt Ẩn (Image Caption/Summary) cho một bức ảnh đính kèm
+   * Giúp AI luôn nắm bắt đầy đủ dữ liệu trong ảnh khi đọc ô ghi chú hoặc toàn bản đồ.
+   */
+  async generateImageCaption({
+    baseUrl,
+    apiKey,
+    model,
+    imageBase64,
+    nodeLabel,
+    mapContext,
+  }: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    imageBase64: string;
+    nodeLabel?: string;
+    mapContext?: string;
+  }): Promise<string> {
+    const cleanUrl = cleanBaseUrl(baseUrl);
+    const resolvedImage = await resolveImageForAi(imageBase64);
+
+    let systemPrompt = `Bạn là trợ lý thị giác AI chuyên phân tích hình ảnh học thuật (sơ đồ y khoa, bảng biểu, đồ thị toán học, công thức, slide bài giảng).
+Nhiệm vụ của bạn: Hãy đọc kỹ hình ảnh này và viết một BẢN TÓM TẮT DỮ LIỆU HÌNH ẢNH cô đọng, đầy đủ thông tin cốt lõi nhất (khoảng 2-5 câu hoặc các ý ngắn gọn) bằng tiếng Việt.
+QUY TẮC:
+1. Ghi rõ: Ảnh chụp/vẽ về chủ đề gì, các chữ viết/nhãn quan trọng, số liệu/công thức toán ($...$) và mối liên hệ mũi tên chính trong ảnh.
+2. Không chào hỏi rườm rà, chỉ trả về nội dung tóm tắt súc tích để lưu làm bộ nhớ cho AI.`;
+
+    if (mapContext && mapContext.trim()) {
+      systemPrompt += `\n\n[NGỮ CẢNH BẢN ĐỒ]:\n${mapContext.trim()}`;
+    }
+
+    const userText = nodeLabel
+      ? `Hình ảnh này nằm trong ô ghi chú "${nodeLabel}". Hãy tóm tắt chính xác mọi thông tin, chữ viết, công thức và sơ đồ trong ảnh này:`
+      : `Hãy tóm tắt chính xác mọi thông tin, chữ viết, công thức và sơ đồ trong ảnh này:`;
+
+    const res = await fetch(`${cleanUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        model: model.trim(),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userText },
+              { type: 'image_url', image_url: { url: resolvedImage } },
+            ],
+          },
+        ],
+        stream: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || err.message || `Lỗi tạo tóm tắt ảnh (${res.status})`);
+    }
+
+    const data = await res.json();
+    const rawContent = data.choices?.[0]?.message?.content || '';
+    const cleaned = cleanAiOutput(rawContent).trim();
+    if (!cleaned) {
+      throw new Error('Model AI không trả về nội dung tóm tắt cho ảnh này.');
+    }
+    return cleaned;
+  },
+
+  /**
    * AI Viết lại / Trau chuốt / Mở rộng nội dung cho 1 ô ghi chú
    */
   async refineNoteContent({
@@ -319,6 +479,7 @@ ${edgesSummary}
     customInstruction,
     mapContext,
     images,
+    attachmentCaptions,
   }: {
     baseUrl: string;
     apiKey: string;
@@ -338,6 +499,7 @@ ${edgesSummary}
     customInstruction?: string;
     mapContext?: string;
     images?: string[];
+    attachmentCaptions?: Record<string, string>;
   }): Promise<string> {
     const cleanUrl = cleanBaseUrl(baseUrl);
 
@@ -385,44 +547,29 @@ QUY TẮC BẮT BUỘC:
 1. 100% tiếng Việt tự nhiên, không tiếng Trung, không xuất thẻ hệ thống hay [ATLAS-OK].
 2. Sử dụng Markdown đẹp mắt (heading, bold, list, blockquote).
 3. Sử dụng KaTeX ($...$ và $$...$$) cho công thức toán học nếu có.
-4. Có khả năng đọc và phân tích hình ảnh đính kèm (sơ đồ y khoa, tế bào, đồ thị toán, công thức viết tay...).
+4. Nếu trong bài viết gốc có thẻ ảnh đính kèm dạng ![...](attachment:...), hãy GIỮ NGUYÊN thẻ ![...](attachment:...) đó (trừ khi người dùng yêu cầu mô tả thay ảnh). KHÔNG lặp lại dòng "> 🖼️ [Bản tóm tắt AI của ảnh...]" vào kết quả.
 5. CHỈ TRẢ VỀ nội dung Markdown của ô ghi chú. KHÔNG kèm câu chào đầu hay lời giải thích ngoài lề.`;
 
     if (mapContext && mapContext.trim()) {
       fullSystemPrompt += `\n\n[NGỮ CẢNH SỔ TAY / KIẾN THỨC NỀN CỦA BẢN ĐỒ]:\n${mapContext.trim()}\n(LƯU Ý: Hãy đối chiếu và sử dụng kiến thức, thuật ngữ trong ngữ cảnh này để viết nội dung chính xác theo giáo trình!)`;
     }
 
+    const enrichedCurrent = injectAttachmentCaptionsIntoContent(
+      currentContent || '(Chưa có nội dung, hãy viết mới)',
+      attachmentCaptions
+    );
+
     const userPrompt = `TIÊU ĐỀ Ô: "${nodeLabel}"
 
 NỘI DUNG HIỆN TẠI:
-${currentContent || '(Chưa có nội dung, hãy viết mới)'}
+${enrichedCurrent}
 
 YÊU CẦU:
 ${instruction}`;
 
-    // Payload người dùng: nếu có ảnh đính kèm, gửi dạng Multimodal Image Parts
     let userMessageContent: unknown = userPrompt;
     if (images && images.length > 0) {
-      // Chuyển đổi mindnote-asset:// sang Base64 trong bộ nhớ RAM cho API AI nếu chạy bản Desktop
-      const resolvedImages = await Promise.all(
-        images.map(async (img) => {
-          if (img.startsWith('mindnote-asset://')) {
-            try {
-              const r = await fetch(img);
-              const blob = await r.blob();
-              return await new Promise<string>((resolve) => {
-                const reader = new FileReader();
-                reader.onloadend = () => resolve((reader.result as string) || img);
-                reader.readAsDataURL(blob);
-              });
-            } catch {
-              return img;
-            }
-          }
-          return img;
-        })
-      );
-
+      const resolvedImages = await Promise.all(images.map((img) => resolveImageForAi(img)));
       userMessageContent = [
         {
           type: 'text',
@@ -462,57 +609,79 @@ ${instruction}`;
   },
 
   /**
-   * AI Gợi ý và tự động sinh các nhánh con mới cho 1 ô cha
+   * Inline AI: Chỉnh sửa / Biến đổi đúng đoạn văn bản đang bôi đen trong trình soạn thảo UnifiedNoteEditor
+   * hoặc Tự động gắn [[Wiki-link]] tới các ô liên quan
    */
-  async generateChildBranches({
+  async inlineEditSelection({
     baseUrl,
     apiKey,
     model,
-    parentLabel,
-    parentContent,
-    mapName,
-    existingNodeLabels,
+    selectedText,
+    action,
+    customPrompt,
+    nodeLabel,
+    allNodeLabels,
     mapContext,
-    count = 3,
   }: {
     baseUrl: string;
     apiKey: string;
     model: string;
-    parentLabel: string;
-    parentContent: string;
-    mapName: string;
-    existingNodeLabels?: string[];
+    selectedText: string;
+    action: 'expand' | 'summarize' | 'katex' | 'table_box' | 'wikilink' | 'polish' | 'custom';
+    customPrompt?: string;
+    nodeLabel?: string;
+    allNodeLabels?: string[];
     mapContext?: string;
-    count?: number;
-  }): Promise<Array<{ label: string; content: string }>> {
+  }): Promise<string> {
     const cleanUrl = cleanBaseUrl(baseUrl);
 
-    let systemPrompt = `Bạn là chuyên gia tư duy logic và cấu trúc sơ đồ tư duy (Mind Map).
-Nhiệm vụ của bạn là phân tích ô ghi chú cha và đề xuất chính xác ${count} nhánh con logic tiếp theo.
-QUY TẮC:
-1. 100% tiếng Việt, không tiếng Trung, không [ATLAS-OK].
-2. BẮT BUỘC trả về duy nhất một mảng JSON hợp lệ dạng:
-[
-  {
-    "label": "Tên ngắn của nhánh con (dưới 30 ký tự)",
-    "content": "Nội dung tóm tắt giải thích chi tiết hoặc công thức KaTeX của nhánh con này"
-  }
-]
-3. KHÔNG viết thêm bất kỳ câu mở đầu, kết thúc hay giải thích nào bên ngoài khối JSON.`;
-
-    if (mapContext && mapContext.trim()) {
-      systemPrompt += `\n\n[NGỮ CẢNH SỔ TAY / KIẾN THỨC NỀN CỦA BẢN ĐỒ]:\n${mapContext.trim()}\nHãy đối chiếu giáo trình này để sinh các nhánh con chuẩn xác chuyên môn nhất.`;
+    let taskPrompt = '';
+    switch (action) {
+      case 'expand':
+        taskPrompt =
+          'Hãy viết chi tiết, rõ ràng và sâu sắc hơn cho đoạn văn bản đang chọn này (giữ nguyên mạch văn để thay thế trực tiếp vào vị trí đang bôi đen).';
+        break;
+      case 'summarize':
+        taskPrompt = 'Hãy cô đọng và tóm tắt ngắn gọn đoạn văn bản đang chọn này thành các ý súc tích nhất.';
+        break;
+      case 'katex':
+        taskPrompt =
+          'Hãy chuyển đổi các biểu thức toán học, hóa học, ký hiệu y sinh hoặc đơn vị trong đoạn văn bản này sang chuẩn công thức KaTeX ($...$ hoặc $$...$$) thật đẹp và chuẩn xác.';
+        break;
+      case 'table_box':
+        taskPrompt =
+          'Hãy trình bày lại đoạn văn bản đang chọn này thành Bảng Markdown (| Cột 1 | Cột 2 |...) hoặc Khối Callout (> 📌 [Tiêu đề]) sao cho trực quan, dễ học nhất.';
+        break;
+      case 'wikilink':
+        taskPrompt = `Hãy đọc đoạn văn bản đang chọn và tự động chèn liên kết nội bộ dạng [[Tên Ô]] cho các khái niệm trùng hoặc liên quan mật thiết với danh sách các ô đã có trong bản đồ: [${(allNodeLabels || []).join(', ')}]. Nếu có khái niệm quan trọng xứng đáng làm một ô mới, bạn cũng có thể bọc trong [[Tên Khái Niệm]]. Giữ nguyên toàn bộ nội dung và công thức khác.`;
+        break;
+      case 'polish':
+        taskPrompt =
+          'Hãy trau chuốt câu từ, sửa lỗi chính tả, in đậm (**...**) các từ khóa cốt lõi trong đoạn văn bản này.';
+        break;
+      case 'custom':
+        taskPrompt = customPrompt || 'Hãy cải thiện đoạn văn bản đang chọn này.';
+        break;
     }
 
-    const userPrompt = `BẢN ĐỒ: "${mapName}"
-Ô CHA: "${parentLabel}"
-NỘI DUNG Ô CHA:
-${parentContent || '(Không có)'}
+    let systemPrompt = `Bạn là trợ lý biên tập Inline AI thông minh ngay tại con trỏ soạn thảo.
+QUY TẮC TUYỆT ĐỐI:
+1. 100% tiếng Việt, không dùng tiếng Trung, không xuất [ATLAS-OK].
+2. CHỈ TRẢ VỀ đúng phần văn bản/Markdown mới để thay thế trực tiếp cho đoạn văn bản người dùng đang bôi đen.
+3. KHÔNG viết lời chào, không giải thích, không bọc trong \`\`\`markdown.`;
 
-CÁC Ô ĐÃ CÓ TRONG BẢN ĐỒ:
-${existingNodeLabels?.join(', ') || '(Chưa có)'}
+    if (mapContext && mapContext.trim()) {
+      systemPrompt += `\n\n[NGỮ CẢNH MÔN HỌC]:\n${mapContext.trim()}`;
+    }
 
-Hãy sinh đúng ${count} nhánh con mới logic nhất, tránh trùng lặp với các ô đã có.`;
+    const userPrompt = `Ô GHI CHÚ HIỆN TẠI: "${nodeLabel || 'Ghi chú'}"
+ĐOẠN VĂN BẢN ĐANG BÔI ĐEN:
+"""
+${selectedText}
+"""
+
+YÊU CẦU XỬ LÝ:
+${taskPrompt}`;
 
     const res = await fetch(`${cleanUrl}/chat/completions`, {
       method: 'POST',
@@ -532,35 +701,302 @@ Hãy sinh đúng ${count} nhánh con mới logic nhất, tránh trùng lặp v�
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error?.message || err.message || `Lỗi AI (${res.status})`);
+      throw new Error(err.error?.message || err.message || `Lỗi Inline AI (${res.status})`);
+    }
+
+    const data = await res.json();
+    const rawContent = data.choices?.[0]?.message?.content || '';
+    return cleanAiOutput(rawContent)
+      .replace(/^```(?:markdown|md)?\s*/i, '')
+      .replace(/\s*```$/, '')
+      .trim();
+  },
+
+  /**
+   * AI TÁCH Ý TRONG Ô HIỆN TẠI THÀNH CÁC Ô NHÁNH CON MỚI (Smart Split Node into Child Branches)
+   * - Đọc nội dung của ô cha A (ví dụ: 1 ý chính + các ý phụ / mục nhỏ).
+   * - Giữ lại phần Ý CHÍNH cốt lõi ở ô A (kèm liên kết [[Tên nhánh]]).
+   * - Chuyển các Ý PHỤ sang các ô nhánh con mới được kết nối trực tiếp với ô A!
+   */
+  async splitNodeIntoBranches({
+    baseUrl,
+    apiKey,
+    model,
+    parentLabel,
+    parentContent,
+    mapName,
+    mapContext,
+    attachmentCaptions,
+  }: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    parentLabel: string;
+    parentContent: string;
+    mapName: string;
+    mapContext?: string;
+    attachmentCaptions?: Record<string, string>;
+  }): Promise<SplitNodeResult> {
+    const cleanUrl = cleanBaseUrl(baseUrl);
+    const enrichedParentContent = injectAttachmentCaptionsIntoContent(
+      parentContent,
+      attachmentCaptions
+    );
+
+    let systemPrompt = `Bạn là chuyên gia cấu trúc hóa Sơ đồ tư duy (Mind Map).
+Nhiệm vụ của bạn là: Đọc toàn bộ nội dung của Ô GHI CHÚ GỐC (Ô A), phân tích các phần/mục/ý bên trong nó để TÁCH CÁC Ý PHỤ RA THÀNH CÁC Ô NHÁNH CON MỚI:
+1. Phần "remainingParentContent" (Nội dung còn lại ở Ô A):
+   - Chỉ giữ lại phần ĐỊNH NGHĨA TỔNG QUAN / Ý CHÍNH CỐT LÕI nhất của Ô A.
+   - Các ý phụ chi tiết, phân loại, hoặc các mục con ĐÃ ĐƯỢC TÁCH ĐI thì phải XÓA KHỎI Ô A (để Ô A gọn gàng, không bị lặp lại).
+   - Ở cuối "remainingParentContent", hãy thêm danh sách liên kết nội bộ dạng \`- [[Tên nhánh con 1]]\` để người đọc dễ dàng bấm sang các nhánh vừa tách.
+2. Phần "branches" (Mảng các ô nhánh con mới được tách ra từ Ô A):
+   - Mỗi ý phụ / mục con trong Ô A được tách thành 1 phần tử trong mảng "branches".
+   - BẮT BUỘC giữ nguyên đầy đủ chi tiết, công thức KaTeX ($...$, $$...$$), bảng biểu và thẻ hình ảnh \`![...](attachment:...)\` thuộc về ý phụ đó (KHÔNG làm mất thông tin hay công thức nào của người dùng!). Không chép dòng chú thích hệ thống "> 🖼️ [Bản tóm tắt AI...]" vào content.
+   - Nếu nội dung của một ý phụ hơi ngắn, bạn có thể trình bày lại cho rõ ràng, mạch lạc hơn.
+3. QUY TẮC ĐỊNH DẠNG:
+   - 100% tiếng Việt, không dùng tiếng Trung, không xuất [ATLAS-OK].
+   - BẮT BUỘC trả về DUY NHẤT một khối JSON hợp lệ theo cấu trúc sau:
+{
+  "summary": "Tóm tắt ngắn: Đã giữ lại phần khái niệm chính ở ô gốc và tách 3 mục con thành 3 ô nhánh riêng biệt",
+  "remainingParentContent": "Nội dung Markdown của ý chính còn lại trong ô gốc...",
+  "branches": [
+    {
+      "label": "Tên ngắn gọn của ý phụ 1 (dưới 35 ký tự)",
+      "content": "Toàn bộ nội dung chi tiết, công thức KaTeX, ảnh đính kèm của ý phụ 1...",
+      "color": "cyan",
+      "shape": "card"
+    }
+  ]
+}`;
+
+    if (mapContext && mapContext.trim()) {
+      systemPrompt += `\n\n[NGỮ CẢNH SỔ TAY / KIẾN THỨC NỀN CỦA BẢN ĐỒ]:\n${mapContext.trim()}`;
+    }
+
+    const userPrompt = `BẢN ĐỒ: "${mapName}"
+TIÊU ĐỀ Ô GỐC (Ô A): "${parentLabel}"
+
+NỘI DUNG HIỆN TẠI CỦA Ô GỐC CẦN TÁCH NHÁNH:
+"""
+${enrichedParentContent}
+"""
+
+Hãy phân tích và tách các ý phụ trong ô trên thành các ô nhánh con mới, đồng thời trả về nội dung ý chính còn lại cho ô gốc theo đúng định dạng JSON.`;
+
+    const res = await fetch(`${cleanUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey.trim()}`,
+      },
+      body: JSON.stringify({
+        model: model.trim(),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        stream: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || err.message || `Lỗi AI khi tách nhánh (${res.status})`);
     }
 
     const data = await res.json();
     let text = data.choices?.[0]?.message?.content || '';
     text = cleanAiOutput(text);
 
-    // Extract JSON array
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    const jsonMatch =
+      text.match(/```(?:json)?\s*([\s\S]*?)```/) ||
+      text.match(/\{[\s\S]*"remainingParentContent"[\s\S]*"branches"\s*:\s*\[[\s\S]*\][\s\S]*\}/);
+
     if (jsonMatch) {
-      try {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(parsed)) {
-          return parsed.map((item) => ({
-            label: String(item.label || 'Nhánh mới').trim(),
-            content: String(item.content || '').trim(),
-          }));
-        }
-      } catch {
-        // Fallback
+      const rawJson = jsonMatch[1] || jsonMatch[0];
+      const parsed = safeParseAiJson<SplitNodeResult>(rawJson);
+      if (parsed && Array.isArray(parsed.branches) && parsed.branches.length > 0) {
+        return {
+          summary: parsed.summary || `Đã tách thành ${parsed.branches.length} ô nhánh mới`,
+          remainingParentContent: String(parsed.remainingParentContent || parentContent).trim(),
+          branches: parsed.branches.map((b) => ({
+            label: String(b.label || 'Nhánh con').trim(),
+            content: String(b.content || '').trim(),
+            color: b.color || 'cyan',
+            shape: b.shape || 'card',
+          })),
+        };
       }
     }
 
-    // Fallback parsing if JSON wasn't returned cleanly
-    return [
-      {
-        label: `${parentLabel} - Nhánh 1`,
-        content: `Nội dung mở rộng cho ${parentLabel}`,
+    throw new Error('AI không thể phân tách ý từ nội dung hiện tại. Hãy đảm bảo ô có ít nhất 2 ý/đoạn để tách.');
+  },
+
+  /**
+   * AI Tạo Bộ Thẻ Ôn Tập (Flashcards) từ NHIỀU Ô GHI CHÚ được người dùng chọn (Đọc cả chữ + công thức + ảnh!)
+   */
+  async generateFlashcardsFromNodes({
+    baseUrl,
+    apiKey,
+    model,
+    selectedNodes,
+    mapName,
+    mapContext,
+    attachments,
+    attachmentCaptions,
+    count = 6,
+    cardStyle = 'mixed',
+  }: {
+    baseUrl: string;
+    apiKey: string;
+    model: string;
+    selectedNodes: CustomNode[];
+    mapName: string;
+    mapContext?: string;
+    attachments?: Record<string, string>;
+    attachmentCaptions?: Record<string, string>;
+    count?: number;
+    cardStyle?: 'mixed' | 'qa' | 'formula_cloze' | 'clinical_case';
+  }): Promise<FlashcardItem[]> {
+    const cleanUrl = cleanBaseUrl(baseUrl);
+
+    let styleInstruction = '';
+    switch (cardStyle) {
+      case 'qa':
+        styleInstruction = 'Tập trung vào câu hỏi lý thuyết cốt lõi, định nghĩa, phân loại và bản chất cơ chế.';
+        break;
+      case 'formula_cloze':
+        styleInstruction =
+          'Tập trung vào hỏi công thức toán học/khoa học (KaTeX $...$), điều kiện áp dụng, ý nghĩa các biến số và các con số/ngưỡng chẩn đoán quan trọng.';
+        break;
+      case 'clinical_case':
+        styleInstruction =
+          'Tập trung vào câu hỏi tình huống vận dụng, ca lâm sàng / bài tập thực tế hoặc phân biệt chẩn đoán giữa các nhánh.';
+        break;
+      default:
+        styleInstruction =
+          'Kết hợp đa dạng: câu hỏi bản chất khái niệm, công thức KaTeX/ngưỡng số liệu, và câu hỏi tình huống vận dụng.';
+    }
+
+    // Thu thập nội dung từng ô được chọn + kiểm tra nếu có ảnh chưa được tóm tắt thì gửi kèm tối đa 3 ảnh gốc qua Vision
+    const rawUncaptionedImages: string[] = [];
+
+    const nodesFormatted = selectedNodes
+      .map((n, idx) => {
+        const contentWithCaptions = injectAttachmentCaptionsIntoContent(
+          n.data.content || '(trống)',
+          attachmentCaptions
+        );
+
+        // Nếu trong ô có ảnh mà chưa có caption trong attachmentCaptions, lấy ảnh gốc đưa vào Vision
+        const imgMatches = [...(n.data.content || '').matchAll(/attachment:([^\s)]+)/g)];
+        for (const m of imgMatches) {
+          const attId = m[1];
+          if (!attachmentCaptions?.[attId] && attachments?.[attId] && rawUncaptionedImages.length < 3) {
+            rawUncaptionedImages.push(attachments[attId]);
+          }
+        }
+
+        return `[Ô được chọn #${idx + 1}]
+- sourceNodeId: "${n.id}"
+- sourceNodeLabel: "${n.data.label || 'Chưa đặt tên'}"
+- Nội dung & Mô tả hình ảnh:
+${contentWithCaptions}
+----------------------------------------`;
+      })
+      .join('\n');
+
+    let systemPrompt = `Bạn là chuyên gia giáo dục và khảo thí đại học (Y khoa, Toán - Kỹ thuật, Kinh tế).
+Nhiệm vụ của bạn là đọc kỹ ${selectedNodes.length} ô ghi chú do người dùng chọn trong bản đồ "${mapName}" và tạo ra chính xác ${count} thẻ Flashcard (Hỏi - Đáp) chất lượng cao nhất giúp người dùng tự ôn tập (Active Recall).
+
+QUY TẮC BẮT BUỘC:
+1. 100% tiếng Việt tự nhiên, chuẩn thuật ngữ chuyên ngành, không dùng tiếng Trung, không xuất [ATLAS-OK].
+2. Bám sát nội dung văn bản, công thức KaTeX ($...$ và $$...$$), bảng biểu VÀ dữ liệu từ hình ảnh trong các ô được chọn.
+3. Phong cách câu hỏi: ${styleInstruction}
+4. BẮT BUỘC trả về DUY NHẤT một mảng JSON hợp lệ theo đúng cấu trúc:
+[
+  {
+    "question": "Câu hỏi ngắn gọn, rõ ràng, kích thích tư duy nhớ bài (hỗ trợ Markdown & KaTeX $...$)",
+    "answer": "Đáp án chi tiết, đầy đủ ý cốt lõi, giải thích ngắn gọn hoặc công thức KaTeX chuẩn xác",
+    "sourceNodeId": "ID của ô ghi chú gốc chứa kiến thức này",
+    "sourceNodeLabel": "Tên tiêu đề của ô ghi chú gốc"
+  }
+]`;
+
+    if (mapContext && mapContext.trim()) {
+      systemPrompt += `\n\n[NGỮ CẢNH SỔ TAY / ĐỀ CƯƠNG CỦA BẢN ĐỒ]:\n${mapContext.trim()}`;
+    }
+
+    const userText = `Dưới đây là ${selectedNodes.length} ô ghi chú được chọn để tạo Flashcard ôn tập:
+
+${nodesFormatted}
+
+Hãy tạo đúng ${count} thẻ Flashcard bao quát đều các kiến thức quan trọng nhất của các ô này và trả về mảng JSON hợp lệ.`;
+
+    let userContentPayload: unknown = userText;
+    if (rawUncaptionedImages.length > 0) {
+      const resolvedImgs = await Promise.all(rawUncaptionedImages.map((img) => resolveImageForAi(img)));
+      userContentPayload = [
+        { type: 'text', text: userText },
+        ...resolvedImgs.map((url) => ({
+          type: 'image_url',
+          image_url: { url },
+        })),
+      ];
+    }
+
+    const res = await fetch(`${cleanUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey.trim()}`,
       },
-    ];
+      body: JSON.stringify({
+        model: model.trim(),
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContentPayload },
+        ],
+        stream: false,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || err.message || `Lỗi tạo Flashcard (${res.status})`);
+    }
+
+    const data = await res.json();
+    let text = data.choices?.[0]?.message?.content || '';
+    text = cleanAiOutput(text);
+
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (jsonMatch) {
+      const parsed = safeParseAiJson<
+        Array<{
+          question?: string;
+          answer?: string;
+          sourceNodeId?: string;
+          sourceNodeLabel?: string;
+        }>
+      >(jsonMatch[0]);
+
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const now = Date.now();
+        return parsed.map((item, i) => ({
+          id: `fc-${now}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+          question: String(item.question || 'Câu hỏi ôn tập').trim(),
+          answer: String(item.answer || '').trim(),
+          sourceNodeId: item.sourceNodeId ? String(item.sourceNodeId) : selectedNodes[0]?.id,
+          sourceNodeLabel: item.sourceNodeLabel
+            ? String(item.sourceNodeLabel)
+            : selectedNodes[0]?.data.label,
+          status: 'new' as const,
+          createdAt: now,
+        }));
+      }
+    }
+
+    throw new Error('Không thể phân tích dữ liệu Flashcard từ phản hồi của AI. Vui lòng thử lại.');
   },
 };

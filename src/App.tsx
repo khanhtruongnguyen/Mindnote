@@ -1,7 +1,17 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { ReactFlowProvider, MarkerType, type Edge } from '@xyflow/react';
-import type { CustomNode, MapData, NodeColor, AgentAction, ImportDataResult } from './types';
+import type {
+  CustomNode,
+  MapData,
+  NodeColor,
+  AgentAction,
+  ImportDataResult,
+  FlashcardItem,
+  SplitNodeResult,
+} from './types';
 import { StorageService, DEFAULT_STARTER_MAP } from './services/storage';
+import { AiService } from './services/aiService';
+import { computeHierarchicalTreeLayout } from './utils/treeLayout';
 import { COLOR_SCHEMES } from './constants/theme';
 import { Header } from './components/Header';
 import { CanvasWorkspace } from './components/CanvasWorkspace';
@@ -17,6 +27,7 @@ import { ConnectNodesModal } from './components/ConnectNodesModal';
 import { MapContextModal } from './components/MapContextModal';
 import { ImportConfirmModal } from './components/ImportConfirmModal';
 import { GoogleDriveImportModal } from './components/GoogleDriveImportModal';
+import { FlashcardModal } from './components/FlashcardModal';
 import { useDeviceMode } from './hooks/useDeviceMode';
 import {
   syncMapToSupabase,
@@ -49,7 +60,16 @@ export function App() {
   const [isContextModalOpen, setIsContextModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [isGoogleDriveModalOpen, setIsGoogleDriveModalOpen] = useState(false);
+  const [isFlashcardModalOpen, setIsFlashcardModalOpen] = useState(false);
   const [pendingImportResult, setPendingImportResult] = useState<ImportDataResult | null>(null);
+
+  // Trạng thái đang sinh mô tả ảnh ẩn cho AI
+  const [loadingCaptionIds, setLoadingCaptionIds] = useState<string[]>([]);
+
+  // Undo stack cho thao tác lớn trên bản đồ (Agent, Xếp cây, Tách nhánh)
+  const [mapUndoStack, setMapUndoStack] = useState<
+    Record<string, Array<{ nodes: CustomNode[]; edges: Edge[] }>>
+  >({});
 
   // Khởi tạo IndexedDB và nạp dữ liệu bản đồ
   useEffect(() => {
@@ -130,7 +150,161 @@ export function App() {
     [activeMap.id]
   );
 
-  // Save image attachment handler (Lưu file vào Desktop Vault nếu chạy Electron, hoặc tải lên Supabase CDN)
+  // Lưu snapshot vào Undo stack trước khi thực hiện các thao tác lớn trên bản đồ
+  const pushUndoSnapshot = useCallback(
+    (mapId: string, nodes: CustomNode[], edges: Edge[]) => {
+      try {
+        const snapshotNodes = JSON.parse(JSON.stringify(nodes)) as CustomNode[];
+        const snapshotEdges = JSON.parse(JSON.stringify(edges)) as Edge[];
+        setMapUndoStack((prev) => {
+          const list = prev[mapId] || [];
+          const nextList = [...list.slice(-14), { nodes: snapshotNodes, edges: snapshotEdges }];
+          return {
+            ...prev,
+            [mapId]: nextList,
+          };
+        });
+      } catch (e) {
+        console.warn('Không thể tạo snapshot hoàn tác:', e);
+      }
+    },
+    []
+  );
+
+  const canUndoMap = useMemo(() => {
+    return Boolean((mapUndoStack[activeMap.id]?.length || 0) > 0);
+  }, [mapUndoStack, activeMap.id]);
+
+  // Hoàn tác bản đồ về trạng thái trước đó
+  const handleUndoMap = useCallback(() => {
+    const stack = mapUndoStack[activeMap.id] || [];
+    if (stack.length === 0) return;
+
+    const lastSnapshot = stack[stack.length - 1];
+    setMapUndoStack((prev) => ({
+      ...prev,
+      [activeMap.id]: stack.slice(0, -1),
+    }));
+
+    handleUpdateCurrentMap({
+      nodes: lastSnapshot.nodes,
+      edges: lastSnapshot.edges,
+    });
+  }, [mapUndoStack, activeMap.id, handleUpdateCurrentMap]);
+
+  // Tự động sắp xếp sơ đồ tư duy theo cấu trúc cây phân cấp cân đối
+  const handleAutoLayoutMap = useCallback(() => {
+    if (!activeMap.nodes || activeMap.nodes.length <= 1) return;
+    pushUndoSnapshot(activeMap.id, activeMap.nodes, activeMap.edges);
+
+    const layoutedNodes = computeHierarchicalTreeLayout(activeMap.nodes, activeMap.edges, {
+      x: 420,
+      y: 300,
+    });
+
+    handleUpdateCurrentMap({
+      nodes: layoutedNodes,
+    });
+  }, [activeMap.id, activeMap.nodes, activeMap.edges, pushUndoSnapshot, handleUpdateCurrentMap]);
+
+  // Hàm gọi AI tạo bản tóm tắt ẩn cho ảnh đính kèm (An toàn bất đồng bộ)
+  const generateCaptionForAttachment = useCallback(
+    async (
+      targetMapId: string,
+      attachId: string,
+      imageSource: string,
+      nodeLabel?: string,
+      showAlertOnError = false
+    ) => {
+      if (!settings.aiApiKey?.trim()) {
+        if (showAlertOnError) {
+          alert('Vui lòng cài đặt API Key trong mục Trợ lý AI trước khi tạo tóm tắt ảnh!');
+        }
+        return;
+      }
+
+      setLoadingCaptionIds((prev) => (prev.includes(attachId) ? prev : [...prev, attachId]));
+      try {
+        const caption = await AiService.generateImageCaption({
+          baseUrl: settings.aiBaseUrl || 'https://api.openai.com/v1',
+          apiKey: settings.aiApiKey,
+          model: settings.aiModel || 'gpt-4o-mini',
+          imageBase64: imageSource,
+          nodeLabel,
+          mapContext: activeMap.context,
+        });
+        if (caption) {
+          setMaps((prevMaps) =>
+            prevMaps.map((m) => {
+              if (m.id === targetMapId) {
+                return {
+                  ...m,
+                  attachmentCaptions: {
+                    ...(m.attachmentCaptions || {}),
+                    [attachId]: caption,
+                  },
+                  updatedAt: Date.now(),
+                };
+              }
+              return m;
+            })
+          );
+        }
+      } catch (err: unknown) {
+        const e = err as Error;
+        console.warn(`[AI Image Caption] Lỗi khi tóm tắt ảnh ${attachId}:`, e.message);
+        if (showAlertOnError) {
+          alert(`Không thể tạo mô tả cho ảnh (${attachId}): ${e.message}`);
+        }
+      } finally {
+        setLoadingCaptionIds((prev) => prev.filter((id) => id !== attachId));
+      }
+    },
+    [settings]
+  );
+
+  // Cập nhật thủ công bản tóm tắt ẩn của ảnh
+  const handleUpdateAttachmentCaption = useCallback(
+    (attachId: string, caption: string) => {
+      setMaps((prevMaps) =>
+        prevMaps.map((m) => {
+          if (m.id === activeMap.id) {
+            return {
+              ...m,
+              attachmentCaptions: {
+                ...(m.attachmentCaptions || {}),
+                [attachId]: caption,
+              },
+              updatedAt: Date.now(),
+            };
+          }
+          return m;
+        })
+      );
+    },
+    [activeMap.id]
+  );
+
+  // Yêu cầu AI tạo / tạo lại bản tóm tắt ẩn cho 1 ảnh cụ thể
+  const handleRegenerateAttachmentCaption = useCallback(
+    async (attachId: string) => {
+      const imageSource = activeMap.attachments?.[attachId];
+      if (!imageSource) {
+        alert('Không tìm thấy dữ liệu gốc của ảnh này!');
+        return;
+      }
+      await generateCaptionForAttachment(
+        activeMap.id,
+        attachId,
+        imageSource,
+        selectedNode?.data.label || activeMap.name,
+        true
+      );
+    },
+    [activeMap.id, activeMap.attachments, activeMap.name, selectedNode, generateCaptionForAttachment]
+  );
+
+  // Save image attachment handler (Lưu file vào Desktop Vault nếu chạy Electron, hoặc tải lên Supabase CDN + Tự động tạo bản tóm tắt ẩn cho AI)
   const handleSaveAttachment = useCallback(
     async (attachId: string, base64: string) => {
       let finalUri = base64;
@@ -157,14 +331,43 @@ export function App() {
         }
       }
 
-      handleUpdateCurrentMap({
-        attachments: {
-          ...(activeMap.attachments || {}),
-          [attachId]: finalUri,
-        },
-      });
+      const targetMapId = activeMap.id;
+      setMaps((prevMaps) =>
+        prevMaps.map((m) => {
+          if (m.id === targetMapId) {
+            return {
+              ...m,
+              attachments: {
+                ...(m.attachments || {}),
+                [attachId]: finalUri,
+              },
+              updatedAt: Date.now(),
+            };
+          }
+          return m;
+        })
+      );
+
+      // 3. Tự động gọi AI chạy ngầm để tạo bản tóm tắt ẩn cho bức ảnh vừa đính kèm (dùng base64 trực tiếp để nhanh & không phụ thuộc mạng tải lại)
+      if (settings.aiApiKey?.trim()) {
+        generateCaptionForAttachment(
+          targetMapId,
+          attachId,
+          base64,
+          selectedNode?.data.label || activeMap.name,
+          false
+        );
+      }
     },
-    [activeMap.attachments, handleUpdateCurrentMap, settings.supabaseUrl, settings.supabaseAnonKey]
+    [
+      activeMap.id,
+      activeMap.name,
+      selectedNode,
+      settings.supabaseUrl,
+      settings.supabaseAnonKey,
+      settings.aiApiKey,
+      generateCaptionForAttachment,
+    ]
   );
 
   // Auto-save maps to IndexedDB (Debounced 300ms)
@@ -366,6 +569,8 @@ export function App() {
     (parentNode: CustomNode, branches: Array<{ label: string; content: string }>) => {
       if (!branches || branches.length === 0) return;
 
+      pushUndoSnapshot(activeMap.id, activeMap.nodes, activeMap.edges);
+
       const colors: NodeColor[] = ['cyan', 'emerald', 'amber', 'rose', 'indigo', 'purple'];
       const newNodes: CustomNode[] = [];
       const newEdges: Edge[] = [];
@@ -422,7 +627,100 @@ export function App() {
         // ignore
       }
     },
-    [activeMap.nodes, activeMap.edges, handleUpdateCurrentMap]
+    [activeMap.id, activeMap.nodes, activeMap.edges, pushUndoSnapshot, handleUpdateCurrentMap]
+  );
+
+  // Tách các ý phụ trong ô hiện tại sang các ô nhánh con mới và rút gọn ô gốc chỉ giữ lại ý chính
+  const handleSplitNodeToBranches = useCallback(
+    (parentNode: CustomNode, splitResult: SplitNodeResult) => {
+      if (!splitResult || !splitResult.branches || splitResult.branches.length === 0) return;
+
+      pushUndoSnapshot(activeMap.id, activeMap.nodes, activeMap.edges);
+
+      const colors: NodeColor[] = ['cyan', 'emerald', 'amber', 'rose', 'indigo', 'purple', 'blue'];
+      const newNodes: CustomNode[] = [];
+      const newEdges: Edge[] = [];
+      const total = splitResult.branches.length;
+
+      splitResult.branches.forEach((b, idx) => {
+        const newNodeId = `node-split-${Date.now()}-${idx}`;
+        const posX = parentNode.position.x + 330;
+        const posY = Math.round(parentNode.position.y + (idx - (total - 1) / 2) * 145);
+        const color = b.color || colors[(idx + 1) % colors.length];
+        const shape = b.shape || (b.content && b.content.length > 220 ? 'card' : 'pill');
+
+        newNodes.push({
+          id: newNodeId,
+          type: 'mindmap',
+          position: { x: posX, y: posY },
+          data: {
+            label: b.label,
+            color,
+            shape,
+            content: b.content,
+          },
+        });
+
+        const accentColor = COLOR_SCHEMES[parentNode.data.color || 'purple']?.accent || '#a855f7';
+        newEdges.push({
+          id: `e-${parentNode.id}-${newNodeId}-${Date.now()}-${idx}`,
+          source: parentNode.id,
+          target: newNodeId,
+          type: 'custom',
+          animated: true,
+          style: {
+            stroke: accentColor,
+            strokeWidth: 2,
+          },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: accentColor,
+            width: 16,
+            height: 16,
+          },
+        });
+      });
+
+      // Cập nhật nội dung ô gốc (chỉ giữ lại ý chính + Wiki-link tới các nhánh con) và thêm các ô nhánh mới
+      const updatedExistingNodes = activeMap.nodes.map((n) => {
+        if (n.id === parentNode.id) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              content: splitResult.remainingParentContent || n.data.content,
+            },
+          };
+        }
+        return n;
+      });
+
+      handleUpdateCurrentMap({
+        nodes: [...updatedExistingNodes, ...newNodes],
+        edges: [...activeMap.edges, ...newEdges],
+      });
+
+      try {
+        confetti({
+          particleCount: 55,
+          spread: 65,
+          origin: { y: 0.6 },
+        });
+      } catch {
+        // ignore
+      }
+    },
+    [activeMap.id, activeMap.nodes, activeMap.edges, pushUndoSnapshot, handleUpdateCurrentMap]
+  );
+
+  // Lưu danh sách Flashcard của bản đồ hiện tại
+  const handleUpdateFlashcards = useCallback(
+    (cards: FlashcardItem[]) => {
+      handleUpdateCurrentMap({
+        flashcards: cards,
+      });
+    },
+    [handleUpdateCurrentMap]
   );
 
   // Apply batch changes generated by AI Agent (Create whole map or modify/add nodes and edges)
@@ -430,13 +728,14 @@ export function App() {
     (action: AgentAction) => {
       if (!action || !action.nodes || action.nodes.length === 0) return;
 
+      pushUndoSnapshot(activeMap.id, activeMap.nodes, activeMap.edges);
+
       const colors: NodeColor[] = ['purple', 'blue', 'emerald', 'amber', 'rose', 'cyan', 'indigo'];
       const nodeMap = new Map<string, string>(); // raw ID -> final ID
       const newCustomNodes: CustomNode[] = [];
 
       const centerX = 460;
       const centerY = 320;
-      const total = action.nodes.length;
 
       action.nodes.forEach((n, idx) => {
         const rawId = n.id ? String(n.id).trim() : `agent-node-${Date.now()}-${idx}`;
@@ -445,31 +744,16 @@ export function App() {
         nodeMap.set(String(idx + 1), finalId); // Match 1-based indices like "1"
         nodeMap.set(n.label.toLowerCase().trim(), finalId);
 
-        let posX = n.position?.x;
-        let posY = n.position?.y;
-
-        // Auto layout if coordinate is not given or stacked
-        if (posX === undefined || posY === undefined) {
-          if (idx === 0 && total > 1) {
-            // First node placed in the center
-            posX = centerX;
-            posY = centerY;
-          } else {
-            // Radial layout around center for intuitive mindmap branching
-            const angle = ((idx - 1) / Math.max(1, total - 1)) * 2 * Math.PI - Math.PI / 2;
-            const radius = total <= 5 ? 320 : 380 + (idx % 2) * 60;
-            posX = centerX + Math.cos(angle) * radius;
-            posY = centerY + Math.sin(angle) * (radius * 0.85);
-          }
-        }
-
         const color = n.color || colors[idx % colors.length];
         const shape = n.shape || (n.content && n.content.length > 200 ? 'card' : 'pill');
 
         newCustomNodes.push({
           id: finalId,
           type: 'mindmap',
-          position: { x: Math.round(posX), y: Math.round(posY) },
+          position: {
+            x: n.position?.x !== undefined ? Math.round(n.position.x) : centerX,
+            y: n.position?.y !== undefined ? Math.round(n.position.y) : centerY,
+          },
           data: {
             label: n.label,
             color,
@@ -479,7 +763,7 @@ export function App() {
         });
       });
 
-      // Generate clean Bezier connection edges (no arrows, consistent with map design)
+      // Generate clean Bezier connection edges
       const newCustomEdges: Edge[] = [];
       if (action.edges && action.edges.length > 0) {
         action.edges.forEach((e, edgeIdx) => {
@@ -489,7 +773,9 @@ export function App() {
           const finalTgt = nodeMap.get(rawTgt) || nodeMap.get(rawTgt.toLowerCase()) || rawTgt;
 
           if (finalSrc && finalTgt && finalSrc !== finalTgt) {
-            const srcNode = newCustomNodes.find((n) => n.id === finalSrc);
+            const srcNode =
+              newCustomNodes.find((n) => n.id === finalSrc) ||
+              activeMap.nodes.find((n) => n.id === finalSrc);
             const edgeColor = COLOR_SCHEMES[srcNode?.data.color || 'purple']?.accent || '#a855f7';
 
             newCustomEdges.push({
@@ -505,9 +791,12 @@ export function App() {
       }
 
       if (action.type === 'create_map') {
-        // Replace current map's nodes and edges with the freshly generated graph
+        const treeLayoutNodes = computeHierarchicalTreeLayout(newCustomNodes, newCustomEdges, {
+          x: centerX,
+          y: centerY,
+        });
         handleUpdateCurrentMap({
-          nodes: newCustomNodes,
+          nodes: treeLayoutNodes,
           edges: newCustomEdges,
         });
       } else {
@@ -538,8 +827,13 @@ export function App() {
           }
         });
 
+        const treeLayoutMergedNodes = computeHierarchicalTreeLayout(mergedNodes, mergedEdges, {
+          x: centerX,
+          y: centerY,
+        });
+
         handleUpdateCurrentMap({
-          nodes: mergedNodes,
+          nodes: treeLayoutMergedNodes,
           edges: mergedEdges,
         });
       }
@@ -554,7 +848,7 @@ export function App() {
         // ignore
       }
     },
-    [activeMap.nodes, activeMap.edges, handleUpdateCurrentMap]
+    [activeMap.id, activeMap.nodes, activeMap.edges, pushUndoSnapshot, handleUpdateCurrentMap]
   );
 
   // Add connection edge between 2 nodes
@@ -627,6 +921,7 @@ export function App() {
         setIsConnectModalOpen(false);
         setIsImportModalOpen(false);
         setIsGoogleDriveModalOpen(false);
+        setIsFlashcardModalOpen(false);
       }
     };
 
@@ -990,6 +1285,10 @@ export function App() {
         hasDriveConfigured={Boolean(settings.googleDriveScriptUrl?.trim())}
         isAiOpen={isAiChatOpen}
         onToggleAi={() => setIsAiChatOpen((prev) => !prev)}
+        onOpenFlashcardModal={() => setIsFlashcardModalOpen(true)}
+        onAutoLayoutMap={handleAutoLayoutMap}
+        canUndoMap={canUndoMap}
+        onUndoMap={handleUndoMap}
       />
 
       {/* Infinite Canvas Area */}
@@ -1029,11 +1328,17 @@ export function App() {
           onOpenContextModal={() => setIsContextModalOpen(true)}
           settings={settings}
           onAddBranchNodes={handleAddBranchNodes}
+          onSplitNodeToBranches={handleSplitNodeToBranches}
+          onOpenFlashcardModal={() => setIsFlashcardModalOpen(true)}
           onAddEdge={handleAddEdge}
           onDeleteEdge={handleDeleteEdge}
           onSelectNodeById={handleFocusNode}
           onNavigate={handleNavigateInternal}
           attachments={activeMap.attachments || {}}
+          attachmentCaptions={activeMap.attachmentCaptions || {}}
+          loadingCaptionIds={loadingCaptionIds}
+          onUpdateAttachmentCaption={handleUpdateAttachmentCaption}
+          onRegenerateAttachmentCaption={handleRegenerateAttachmentCaption}
           isMobile={isMobile}
           onUpdateNode={handleUpdateNode}
           onDeleteNode={handleDeleteNode}
@@ -1170,6 +1475,17 @@ export function App() {
           setPendingImportResult(result);
           setIsImportModalOpen(true);
         }}
+      />
+
+      {/* Modal Ôn tập Flashcard & Tạo Flashcard AI từ nhiều ô */}
+      <FlashcardModal
+        isOpen={isFlashcardModalOpen}
+        onClose={() => setIsFlashcardModalOpen(false)}
+        activeMap={activeMap}
+        selectedNodeId={selectedNodeId}
+        settings={settings}
+        onUpdateFlashcards={handleUpdateFlashcards}
+        onFocusNode={handleFocusNode}
       />
     </div>
   );

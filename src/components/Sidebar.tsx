@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import type { Edge } from '@xyflow/react';
-import type { CustomNode, NodeColor, NodeShape, AppSettings } from '../types';
+import type { CustomNode, NodeColor, NodeShape, AppSettings, SplitNodeResult } from '../types';
 import { COLOR_SCHEMES } from '../constants/theme';
 import { UnifiedNoteEditor } from './UnifiedNoteEditor';
 import { ErrorBoundary } from './ErrorBoundary';
@@ -24,6 +24,11 @@ import {
   Globe,
   Maximize2,
   Minimize2,
+  GitBranch,
+  RefreshCw,
+  BookOpen,
+  AlertTriangle,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -36,11 +41,17 @@ interface SidebarProps {
   mapContext?: string;
   onOpenContextModal?: () => void;
   onAddBranchNodes?: (parentNode: CustomNode, branches: Array<{ label: string; content: string }>) => void;
+  onSplitNodeToBranches?: (parentNode: CustomNode, splitResult: SplitNodeResult) => void;
+  onOpenFlashcardModal?: () => void;
   onAddEdge?: (sourceId: string, targetId: string) => void;
   onDeleteEdge?: (edgeId: string) => void;
   onSelectNodeById?: (nodeId: string) => void;
   onNavigate?: (mapId?: string, noteId?: string) => void;
   attachments?: Record<string, string>;
+  attachmentCaptions?: Record<string, string>;
+  loadingCaptionIds?: string[];
+  onUpdateAttachmentCaption?: (attachId: string, caption: string) => void;
+  onRegenerateAttachmentCaption?: (attachId: string, nodeLabel?: string) => Promise<void>;
   isMobile?: boolean;
   onUpdateNode: (id: string, updates: Partial<CustomNode['data']>) => void;
   onDeleteNode: (id: string) => void;
@@ -53,9 +64,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeMapId,
   allNodes = [],
   settings,
+  mapName = 'Bản đồ',
   mapContext,
   onOpenContextModal,
+  onSplitNodeToBranches,
+  onOpenFlashcardModal,
   attachments = {},
+  attachmentCaptions = {},
+  loadingCaptionIds = [],
+  onUpdateAttachmentCaption,
+  onRegenerateAttachmentCaption,
   isMobile = false,
   onUpdateNode,
   onDeleteNode,
@@ -85,6 +103,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [tempVisionImage, setTempVisionImage] = useState<string | null>(null);
   const visionFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Smart Split Node into Child Branches states (Tách ý trong ô thành các ô nhánh con mới)
+  const [splitLoading, setSplitLoading] = useState(false);
+  const [splitPreview, setSplitPreview] = useState<SplitNodeResult | null>(null);
+  const [splitError, setSplitError] = useState<string | null>(null);
+
+  // Quản lý Bản tóm tắt AI ẩn của các hình ảnh đính kèm trong ô
+  const [showImageCaptionsPanel, setShowImageCaptionsPanel] = useState(false);
+  const [regenLoadingById, setRegenLoadingById] = useState<Record<string, boolean>>({});
+  const [regenErrorById, setRegenErrorById] = useState<Record<string, string>>({});
+
+  // Danh sách các ID ảnh đính kèm đang có trong nội dung của ô hiện tại
+  const nodeAttachmentIds = useMemo(() => {
+    const rawContent = selectedNode?.data?.content || '';
+    const matches = [...rawContent.matchAll(/attachment:([^\s)]+)/g)];
+    const uniqueIds = Array.from(new Set(matches.map((m) => m[1])));
+    return uniqueIds.filter((id) => Boolean(attachments[id]));
+  }, [selectedNode?.data?.content, attachments]);
+
   // Mobile Drag Gesture States
   const [dragOffsetY, setDragOffsetY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -105,11 +141,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isFullscreen]);
 
-  // Reset drag position when selectedNode changes
+  // Reset drag position & transient previews when selectedNode changes
   useEffect(() => {
     setDragOffsetY(0);
     setIsDragging(false);
     setIsExpanded(false);
+    setSplitPreview(null);
+    setSplitError(null);
   }, [selectedNode?.id]);
 
   if (!selectedNode) return null;
@@ -200,6 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         customInstruction: aiCustomInstruction.trim(),
         mapContext,
         images: imageList.length > 0 ? imageList : undefined,
+        attachmentCaptions,
       });
 
       setAiWriterResult(result);
@@ -221,6 +260,118 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
     setAiWriterResult(null);
     setShowAiWriter(false);
+  };
+
+  // AI Tách ý trong ô hiện tại thành các ô nhánh con mới (Ý chính giữ lại ở ô gốc, các ý phụ chuyển sang ô nhánh mới)
+  const handleSplitNodeIntoBranches = async () => {
+    if (!selectedNode) return;
+    const rawContent = (selectedNode.data.content || '').trim();
+    if (!rawContent || rawContent.length < 20) {
+      setSplitError('Nội dung ô hiện tại quá ngắn để tách nhánh. Hãy viết ít nhất 2 ý trước khi tách.');
+      return;
+    }
+
+    setSplitLoading(true);
+    setSplitError(null);
+    setSplitPreview(null);
+
+    try {
+      const baseUrl = settings?.aiBaseUrl || 'https://api.xah.io/v1';
+      const apiKey =
+        settings?.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
+      const model = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
+
+      const result = await AiService.splitNodeIntoBranches({
+        baseUrl,
+        apiKey,
+        model,
+        parentLabel: selectedNode.data.label || 'Ghi chú',
+        parentContent: rawContent,
+        mapName,
+        mapContext,
+        attachmentCaptions,
+      });
+
+      setSplitPreview(result);
+    } catch (err: unknown) {
+      const e = err as Error;
+      setSplitError(e.message || 'Lỗi khi tách nhánh bằng AI.');
+    } finally {
+      setSplitLoading(false);
+    }
+  };
+
+  const handleConfirmSplitBranches = () => {
+    if (!selectedNode || !splitPreview || !onSplitNodeToBranches) return;
+    onSplitNodeToBranches(selectedNode, splitPreview);
+    setSplitPreview(null);
+    setSplitError(null);
+  };
+
+  // Tạo lại bản tóm tắt AI cho 1 ảnh đính kèm cụ thể trong ô
+  const handleRegenerateSingleCaption = async (attachId: string) => {
+    if (!onRegenerateAttachmentCaption) return;
+    setRegenLoadingById((prev) => ({ ...prev, [attachId]: true }));
+    setRegenErrorById((prev) => {
+      const next = { ...prev };
+      delete next[attachId];
+      return next;
+    });
+    try {
+      await onRegenerateAttachmentCaption(attachId, selectedNode.data.label);
+    } catch (err: unknown) {
+      const e = err as Error;
+      setRegenErrorById((prev) => ({
+        ...prev,
+        [attachId]: e.message || 'Lỗi tạo tóm tắt ảnh (kiểm tra mạng hoặc model)',
+      }));
+    } finally {
+      setRegenLoadingById((prev) => ({ ...prev, [attachId]: false }));
+    }
+  };
+
+  const handleRegenerateAllMissingCaptions = async () => {
+    const missing = nodeAttachmentIds.filter((id) => !attachmentCaptions[id]?.trim());
+    for (const id of missing) {
+      await handleRegenerateSingleCaption(id);
+    }
+  };
+
+  // Tự động gắn [[Wiki-link]] cho toàn bộ bài viết trong ô hiện tại
+  const handleAutoWikilinkWholeNote = async () => {
+    if (!selectedNode || !selectedNode.data.content?.trim()) return;
+    setAiWriterLoading(true);
+    setAiWriterError(null);
+    setAiWriterResult(null);
+
+    try {
+      const baseUrl = settings?.aiBaseUrl || 'https://api.xah.io/v1';
+      const apiKey =
+        settings?.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
+      const model = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
+
+      const otherLabels = allNodes
+        .filter((n) => n.id !== selectedNode.id && n.data.label)
+        .map((n) => n.data.label);
+
+      const res = await AiService.inlineEditSelection({
+        baseUrl,
+        apiKey,
+        model,
+        selectedText: selectedNode.data.content,
+        action: 'wikilink',
+        nodeLabel: selectedNode.data.label,
+        allNodeLabels: otherLabels,
+        mapContext,
+      });
+
+      setAiWriterResult(res);
+    } catch (err: unknown) {
+      const e = err as Error;
+      setAiWriterError(e.message || 'Lỗi khi gắn Wiki-link');
+    } finally {
+      setAiWriterLoading(false);
+    }
   };
 
   const handleInsertInternalLink = (e: React.FormEvent) => {
@@ -367,26 +518,57 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onTouchEnd={isMobile && !isFullscreen ? handleTouchEnd : undefined}
           className="flex items-center justify-between px-4 sm:px-5 py-2.5 border-b border-[#2e2e3a] bg-[#1a1a22]/70 touch-none select-none shrink-0"
         >
-          {/* Nút Toàn màn hình thay thế cho nhãn cũ */}
-          <div className="flex items-center gap-2">
+          {/* Cụm nút bên trái: Toàn màn hình + Tách ý thành nhánh + Flashcard */}
+          <div className="flex items-center gap-1.5 min-w-0">
             <button
               type="button"
               onClick={() => setIsFullscreen(!isFullscreen)}
               title={isFullscreen ? 'Thu nhỏ lại thanh bên (Esc)' : 'Mở rộng toàn màn hình để viết tập trung'}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#20202d] hover:bg-[#28283a] text-xs font-semibold text-zinc-300 hover:text-white border border-zinc-700/60 shadow-sm transition-all hover:scale-[1.02] cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#20202d] hover:bg-[#28283a] text-xs font-semibold text-zinc-300 hover:text-white border border-zinc-700/60 shadow-sm transition-all hover:scale-[1.02] cursor-pointer shrink-0"
             >
               {isFullscreen ? (
                 <>
                   <Minimize2 className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Thu nhỏ (Esc)</span>
+                  <span className="hidden sm:inline">Thu nhỏ</span>
                 </>
               ) : (
                 <>
                   <Maximize2 className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Toàn màn hình</span>
+                  <span className="hidden sm:inline">Toàn màn hình</span>
                 </>
               )}
             </button>
+
+            {/* Nút AI Tách ý trong ô ra thành các ô nhánh con */}
+            {onSplitNodeToBranches && (
+              <button
+                type="button"
+                disabled={splitLoading}
+                onClick={handleSplitNodeIntoBranches}
+                title="AI đọc nội dung ô này, giữ lại ý chính ở ô hiện tại và tách các ý phụ sang các ô nhánh con mới"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-950/50 hover:bg-cyan-900/60 text-cyan-200 border border-cyan-500/40 text-xs font-semibold shadow-sm transition-all hover:scale-[1.02] cursor-pointer disabled:opacity-50 shrink-0"
+              >
+                {splitLoading ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-cyan-400" />
+                ) : (
+                  <GitBranch className="w-3.5 h-3.5 text-cyan-400" />
+                )}
+                <span>{splitLoading ? 'Đang tách...' : 'Tách ý thành nhánh'}</span>
+              </button>
+            )}
+
+            {/* Nút mở nhanh Flashcard Ôn tập từ ô này */}
+            {onOpenFlashcardModal && (
+              <button
+                type="button"
+                onClick={onOpenFlashcardModal}
+                title="Chọn ô này & các ô khác để AI tạo Flashcard ôn tập"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-950/50 hover:bg-purple-900/60 text-purple-200 border border-purple-500/40 text-xs font-semibold shadow-sm transition-all hover:scale-[1.02] cursor-pointer shrink-0"
+              >
+                <BookOpen className="w-3.5 h-3.5 text-purple-400" />
+                <span className="hidden sm:inline">Flashcard</span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -502,6 +684,240 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
             </div>
           )}
+
+          {/* ================================================================= */}
+          {/* KHUNG KIỂM TRA & TẠO LẠI BẢN TÓM TẮT AI CHO ẢNH ĐÍNH KÈM TRONG Ô */}
+          {/* ================================================================= */}
+          {nodeAttachmentIds.length > 0 && (
+            <div className="rounded-xl bg-[#181826] border border-[#2d2d44] overflow-hidden text-xs">
+              <div className="flex items-center justify-between px-3 py-1.5">
+                <button
+                  type="button"
+                  onClick={() => setShowImageCaptionsPanel(!showImageCaptionsPanel)}
+                  className="flex items-center gap-2 text-left min-w-0 flex-1 cursor-pointer"
+                >
+                  <ImageIcon className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  <span className="font-semibold text-zinc-200 truncate">
+                    Bộ nhớ ảnh cho AI ({nodeAttachmentIds.length} ảnh):
+                  </span>
+                  {(() => {
+                    const readyCount = nodeAttachmentIds.filter((id) =>
+                      Boolean(attachmentCaptions[id]?.trim())
+                    ).length;
+                    const anyLoading = nodeAttachmentIds.some(
+                      (id) => loadingCaptionIds.includes(id) || regenLoadingById[id]
+                    );
+                    if (anyLoading) {
+                      return (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-semibold">
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                          Đang tạo tóm tắt...
+                        </span>
+                      );
+                    }
+                    if (readyCount === nodeAttachmentIds.length) {
+                      return (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold">
+                          <Check className="w-2.5 h-2.5" />
+                          Đã tóm tắt {readyCount}/{nodeAttachmentIds.length}
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-semibold">
+                        <AlertTriangle className="w-2.5 h-2.5" />
+                        Thiếu {nodeAttachmentIds.length - readyCount}/{nodeAttachmentIds.length} tóm tắt
+                      </span>
+                    );
+                  })()}
+                </button>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {nodeAttachmentIds.some((id) => !attachmentCaptions[id]?.trim()) && (
+                    <button
+                      type="button"
+                      onClick={handleRegenerateAllMissingCaptions}
+                      className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-semibold cursor-pointer"
+                      title="Nhờ AI đọc và tạo tóm tắt cho các ảnh chưa có"
+                    >
+                      <RefreshCw className="w-2.5 h-2.5" />
+                      <span>Tạo đủ</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowImageCaptionsPanel(!showImageCaptionsPanel)}
+                    className="flex items-center gap-0.5 text-[11px] text-purple-300 hover:text-white cursor-pointer px-1"
+                  >
+                    <span>{showImageCaptionsPanel ? 'Thu gọn' : 'Xem / Sửa'}</span>
+                    {showImageCaptionsPanel ? (
+                      <ChevronUp className="w-3.5 h-3.5" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {showImageCaptionsPanel && (
+                <div className="p-2.5 pt-2 border-t border-[#26263a] space-y-2.5 max-h-56 overflow-y-auto bg-[#12121b]">
+                  <p className="text-[11px] text-zinc-400 leading-relaxed">
+                    💡 Mỗi ảnh đính kèm có một <strong>bản tóm tắt ẩn</strong> để khi bạn hỏi đáp, tách nhánh hoặc tạo Flashcard, AI luôn hiểu 100% nội dung trong ảnh. Nếu lúc chèn ảnh bị mất mạng hoặc chưa ưng ý, bạn có thể <strong>sửa trực tiếp</strong> hoặc bấm <strong>Tạo lại bằng AI</strong>:
+                  </p>
+
+                  {nodeAttachmentIds.map((attId, idx) => {
+                    const imgSrc = attachments[attId];
+                    const currentCap = attachmentCaptions[attId] || '';
+                    const isLoadingThis =
+                      loadingCaptionIds.includes(attId) || Boolean(regenLoadingById[attId]);
+                    const errThis = regenErrorById[attId];
+
+                    return (
+                      <div
+                        key={attId}
+                        className="p-2 rounded-xl bg-[#181824] border border-[#2c2c40] space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <img
+                              src={imgSrc}
+                              alt={`Ảnh ${idx + 1}`}
+                              className="w-10 h-10 object-cover rounded-lg border border-zinc-700 shrink-0 bg-black"
+                            />
+                            <div className="min-w-0">
+                              <div className="text-[11px] font-bold text-zinc-200 flex items-center gap-1.5">
+                                <span>Ảnh #{idx + 1}</span>
+                                <span className="text-[10px] font-mono text-zinc-500 truncate">
+                                  ({attId})
+                                </span>
+                              </div>
+                              <div className="text-[10px]">
+                                {isLoadingThis ? (
+                                  <span className="text-purple-300">⏳ AI đang phân tích ảnh...</span>
+                                ) : currentCap.trim() ? (
+                                  <span className="text-emerald-400">✅ Đã có bản tóm tắt đảm bảo</span>
+                                ) : (
+                                  <span className="text-amber-400">
+                                    ⚠️ Chưa có bản tóm tắt (Hãy bấm Tạo bằng AI)
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={isLoadingThis}
+                            onClick={() => handleRegenerateSingleCaption(attId)}
+                            className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-purple-600/25 hover:bg-purple-600/40 text-purple-200 border border-purple-500/40 text-[11px] font-semibold cursor-pointer disabled:opacity-50 shrink-0"
+                          >
+                            <RefreshCw
+                              className={`w-3 h-3 ${isLoadingThis ? 'animate-spin' : ''}`}
+                            />
+                            <span>{currentCap.trim() ? 'AI Tạo lại' : 'AI Tạo tóm tắt'}</span>
+                          </button>
+                        </div>
+
+                        {errThis && (
+                          <div className="text-[10px] text-rose-300 bg-rose-950/40 border border-rose-500/30 rounded px-2 py-1">
+                            ⚠️ {errThis}
+                          </div>
+                        )}
+
+                        <textarea
+                          rows={2}
+                          value={currentCap}
+                          onChange={(e) => onUpdateAttachmentCaption?.(attId, e.target.value)}
+                          placeholder="Chưa có bản tóm tắt. Bấm 'AI Tạo tóm tắt' ở góc phải hoặc tự gõ mô tả ngắn về bức ảnh này..."
+                          className="w-full bg-[#101017] border border-zinc-700/80 focus:border-purple-500 rounded-lg p-2 text-[11px] text-zinc-200 outline-none resize-y leading-relaxed"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ================================================================= */}
+          {/* KHUNG XEM TRƯỚC & XÁC NHẬN: AI TÁCH Ý THÀNH CÁC Ô NHÁNH CON MỚI    */}
+          {/* ================================================================= */}
+          {splitError && (
+            <div className="flex items-center justify-between p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs">
+              <span>⚠️ {splitError}</span>
+              <button
+                type="button"
+                onClick={() => setSplitError(null)}
+                className="text-zinc-400 hover:text-white ml-2 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {splitPreview && (
+            <div className="p-3 rounded-xl bg-[#16192b] border border-cyan-500/50 shadow-lg space-y-2.5 text-xs animate-in fade-in duration-150">
+              <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
+                <div className="flex items-center gap-1.5 font-bold text-cyan-300">
+                  <GitBranch className="w-4 h-4 text-cyan-400" />
+                  <span>Xem trước: Tách {splitPreview.branches.length} ý phụ sang ô nhánh mới</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSplitPreview(null)}
+                  className="text-zinc-400 hover:text-white cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                <div className="p-2 rounded-lg bg-[#10121d] border border-zinc-800">
+                  <div className="text-[10px] font-bold uppercase text-purple-300 mb-1">
+                    📌 Nội dung Ý CHÍNH còn lại ở ô "{data.label}":
+                  </div>
+                  <div className="text-[11px] text-zinc-300 whitespace-pre-wrap line-clamp-3 font-mono">
+                    {splitPreview.remainingParentContent}
+                  </div>
+                </div>
+
+                <div className="text-[10px] font-bold uppercase text-cyan-300 pt-1">
+                  🌿 Các Ý PHỤ sẽ được chuyển sang {splitPreview.branches.length} ô nhánh mới:
+                </div>
+                {splitPreview.branches.map((b, i) => (
+                  <div
+                    key={i}
+                    className="p-2 rounded-lg bg-[#10121d] border border-cyan-500/25 space-y-0.5"
+                  >
+                    <div className="font-bold text-zinc-100 text-[11px]">
+                      {i + 1}. {b.label}
+                    </div>
+                    <div className="text-[10px] text-zinc-400 line-clamp-2 font-mono">
+                      {b.content}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-1 border-t border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setSplitPreview(null)}
+                  className="px-3 py-1 rounded-lg text-zinc-400 hover:text-white cursor-pointer"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSplitBranches}
+                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 text-white font-bold shadow-md shadow-cyan-600/30 cursor-pointer"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>⚡ Xác nhận Tách & Nối nhánh</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* AI Writer Assistant Panel (Tối ưu chống tràn viền & hỗ trợ ẩn các khung) */}
@@ -609,6 +1025,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1f1f2e] hover:bg-[#28283d] text-zinc-200 border border-[#303046] hover:border-purple-500/50 text-[11px] font-medium transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <span>✍️ Sửa lỗi</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={aiWriterLoading}
+                  onClick={handleAutoWikilinkWholeNote}
+                  title="Tự động nhận diện các khái niệm trong bài viết trùng với các ô khác và gắn [[Wiki-link]]"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-200 border border-emerald-500/40 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+                >
+                  <span>🔗 Gắn [[Wiki-link]]</span>
                 </button>
 
                 {/* Nếu note đã có ảnh, hiển thị các nút thao tác ảnh */}
@@ -830,6 +1256,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onSaveAttachment={onSaveAttachment}
               allNodes={allNodes}
               currentNodeId={selectedNode.id}
+              nodeLabel={data.label}
+              mapContext={mapContext}
+              settings={settings}
               onToggleAiWriter={() => setShowAiWriter(!showAiWriter)}
               showAiWriter={showAiWriter}
               isFullscreen={isFullscreen}
