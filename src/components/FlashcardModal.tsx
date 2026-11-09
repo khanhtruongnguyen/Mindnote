@@ -20,9 +20,10 @@ import {
   Search,
   Award,
   BookOpen,
+  Shuffle,
 } from 'lucide-react';
 import type { MapData, AppSettings, FlashcardItem } from '../types';
-import { AiService } from '../services/aiService';
+import { AiService, getRotationModels, getNextRotationModel } from '../services/aiService';
 import { COLOR_SCHEMES } from '../constants/theme';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import confetti from 'canvas-confetti';
@@ -35,6 +36,7 @@ interface FlashcardModalProps {
   settings: AppSettings;
   onUpdateFlashcards: (flashcards: FlashcardItem[]) => void;
   onFocusNode: (nodeId: string) => void;
+  onUpdateSettings?: (updates: Partial<AppSettings>) => void;
 }
 
 export const FlashcardModal: React.FC<FlashcardModalProps> = ({
@@ -45,8 +47,24 @@ export const FlashcardModal: React.FC<FlashcardModalProps> = ({
   settings,
   onUpdateFlashcards,
   onFocusNode,
+  onUpdateSettings,
 }) => {
   const flashcards = useMemo(() => activeMap.flashcards || [], [activeMap.flashcards]);
+
+  const rotationList = useMemo(
+    () => getRotationModels(settings),
+    [settings?.preferredModels, settings?.aiModel]
+  );
+  const currentModel = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
+  const nextRotationModel = useMemo(
+    () => getNextRotationModel(currentModel, rotationList),
+    [currentModel, rotationList]
+  );
+
+  const handleRotateModel = () => {
+    if (!onUpdateSettings) return;
+    onUpdateSettings({ aiModel: nextRotationModel });
+  };
 
   // Tab: 'study' (Ôn tập bộ thẻ đã lưu) vs 'generate' (Chọn nhiều ô để AI sinh thẻ mới)
   const [activeTab, setActiveTab] = useState<'study' | 'generate'>(() =>
@@ -502,12 +520,44 @@ export const FlashcardModal: React.FC<FlashcardModalProps> = ({
               </div>
 
               {genError && (
-                <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs">
-                  ⚠️ {genError}
+                <div className="p-3 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs space-y-2">
+                  <div>⚠️ {genError}</div>
+                  {onUpdateSettings && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleRotateModel();
+                        setTimeout(() => handleGenerateFlashcards(), 50);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 text-xs font-semibold cursor-pointer transition-colors"
+                    >
+                      <Shuffle className="w-3.5 h-3.5 text-purple-300" />
+                      <span>Xoay sang <strong>{nextRotationModel}</strong> & thử tạo lại</span>
+                    </button>
+                  )}
                 </div>
               )}
 
-              <div className="flex items-center justify-end gap-2 pt-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-zinc-800/80">
+                {/* Model Indicator & Quick Switch */}
+                <div className="flex items-center gap-1.5 text-xs">
+                  <span className="text-zinc-400">Model AI:</span>
+                  <span className="font-mono text-purple-300 font-semibold px-2 py-0.5 rounded bg-purple-950/60 border border-purple-500/30 text-[11px] truncate max-w-[140px] sm:max-w-[200px]">
+                    {currentModel}
+                  </span>
+                  {onUpdateSettings && (
+                    <button
+                      type="button"
+                      onClick={handleRotateModel}
+                      title={`Xoay vòng model (Hiện tại: ${currentModel} ➔ Nhấp để đổi sang: ${nextRotationModel})`}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-800 hover:bg-purple-600/30 text-zinc-300 hover:text-purple-200 border border-zinc-700 text-[11px] transition-colors cursor-pointer"
+                    >
+                      <Shuffle className="w-3 h-3 text-purple-400" />
+                      <span>Xoay vòng AI</span>
+                    </button>
+                  )}
+                </div>
+
                 <button
                   type="button"
                   disabled={isGenerating || checkedNodeIds.length === 0}

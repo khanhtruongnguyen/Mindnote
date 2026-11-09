@@ -171,6 +171,13 @@ export const DEFAULT_AI_CONFIG = {
   aiBaseUrl: 'https://api.xah.io/v1',
   aiApiKey: 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b',
   aiModel: 'dungcsnd113/gemini-flash-3.8',
+  preferredModels: [
+    'dungcsnd113/gemini-flash-3.8',
+    'google/gemini-2.5-flash',
+    'openai/gpt-4o-mini',
+    'deepseek/deepseek-chat',
+  ],
+  autoFallbackModel: true,
   saveChatHistory: true,
 };
 

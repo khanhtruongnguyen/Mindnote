@@ -4,7 +4,7 @@ import type { CustomNode, NodeColor, NodeShape, AppSettings, SplitNodeResult } f
 import { COLOR_SCHEMES } from '../constants/theme';
 import { UnifiedNoteEditor } from './UnifiedNoteEditor';
 import { ErrorBoundary } from './ErrorBoundary';
-import { AiService } from '../services/aiService';
+import { AiService, getRotationModels, getNextRotationModel } from '../services/aiService';
 import {
   Trash2,
   Sparkles,
@@ -29,6 +29,7 @@ import {
   BookOpen,
   AlertTriangle,
   Image as ImageIcon,
+  Shuffle,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -52,6 +53,7 @@ interface SidebarProps {
   loadingCaptionIds?: string[];
   onUpdateAttachmentCaption?: (attachId: string, caption: string) => void;
   onRegenerateAttachmentCaption?: (attachId: string, nodeLabel?: string) => Promise<void>;
+  onUpdateSettings?: (updates: Partial<AppSettings>) => void;
   isMobile?: boolean;
   onUpdateNode: (id: string, updates: Partial<CustomNode['data']>) => void;
   onDeleteNode: (id: string) => void;
@@ -74,6 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   loadingCaptionIds = [],
   onUpdateAttachmentCaption,
   onRegenerateAttachmentCaption,
+  onUpdateSettings,
   isMobile = false,
   onUpdateNode,
   onDeleteNode,
@@ -151,6 +154,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [selectedNode?.id]);
 
   if (!selectedNode) return null;
+
+  const rotationList = useMemo(
+    () => getRotationModels(settings),
+    [settings?.preferredModels, settings?.aiModel]
+  );
+  const currentModel = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
+  const nextRotationModel = useMemo(
+    () => getNextRotationModel(currentModel, rotationList),
+    [currentModel, rotationList]
+  );
+
+  const handleRotateModel = () => {
+    if (!onUpdateSettings) return;
+    onUpdateSettings({ aiModel: nextRotationModel });
+  };
 
   const { data } = selectedNode;
   const currentColor = data.color || 'purple';
@@ -569,6 +587,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="hidden sm:inline">Flashcard</span>
               </button>
             )}
+
+            {/* Nút Xoay vòng AI nhanh */}
+            {onUpdateSettings && (
+              <button
+                type="button"
+                onClick={handleRotateModel}
+                title={`Xoay vòng AI (Hiện tại: ${currentModel} ➔ Nhấp để đổi sang: ${nextRotationModel})`}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-purple-300 border border-zinc-700 text-xs font-mono transition-all hover:scale-[1.02] cursor-pointer shrink-0"
+              >
+                <Shuffle className="w-3 h-3 text-purple-400" />
+                <span className="hidden sm:inline truncate max-w-[85px]">{currentModel.split('/').pop()}</span>
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -843,15 +874,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* KHUNG XEM TRƯỚC & XÁC NHẬN: AI TÁCH Ý THÀNH CÁC Ô NHÁNH CON MỚI    */}
           {/* ================================================================= */}
           {splitError && (
-            <div className="flex items-center justify-between p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs">
-              <span>⚠️ {splitError}</span>
-              <button
-                type="button"
-                onClick={() => setSplitError(null)}
-                className="text-zinc-400 hover:text-white ml-2 cursor-pointer"
-              >
-                ✕
-              </button>
+            <div className="p-2.5 rounded-xl bg-rose-950/40 border border-rose-500/30 text-rose-300 text-xs space-y-2">
+              <div className="flex items-center justify-between">
+                <span>⚠️ {splitError}</span>
+                <button
+                  type="button"
+                  onClick={() => setSplitError(null)}
+                  className="text-zinc-400 hover:text-white ml-2 cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {onUpdateSettings && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleRotateModel();
+                    setTimeout(() => handleSplitNodeIntoBranches(), 50);
+                  }}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-cyan-900/40 hover:bg-cyan-800/60 border border-cyan-500/40 text-cyan-200 text-xs font-semibold cursor-pointer transition-colors"
+                >
+                  <Shuffle className="w-3.5 h-3.5 text-cyan-300" />
+                  <span>Xoay sang <strong>{nextRotationModel}</strong> & thử tách lại</span>
+                </button>
+              )}
             </div>
           )}
 

@@ -21,9 +21,15 @@ import {
   GripHorizontal,
   RotateCcw,
   Wand2,
+  Shuffle,
 } from 'lucide-react';
 import type { MapData, ChatMessage, ChatSession, AppSettings, AgentAction } from '../types';
-import { AiService, cleanAiOutput } from '../services/aiService';
+import {
+  AiService,
+  cleanAiOutput,
+  getRotationModels,
+  getNextRotationModel,
+} from '../services/aiService';
 import { StorageService } from '../services/storage';
 import { COLOR_SCHEMES } from '../constants/theme';
 import { MarkdownRenderer } from './MarkdownRenderer';
@@ -75,6 +81,10 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   const [showReasoning, setShowReasoning] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [copiedNodeId, setCopiedNodeId] = useState<string | null>(null);
+
+  // Model Rotation & Quick Switcher States
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [rotationToast, setRotationToast] = useState<string | null>(null);
 
   // Draggable Window State (Desktop)
   const [windowPos, setWindowPos] = useState<{ x: number; y: number } | null>(null);
@@ -180,6 +190,23 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
   const currentBaseUrl = settings.aiBaseUrl || 'https://api.xah.io/v1';
   const currentApiKey =
     settings.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
+
+  const rotationList = useMemo(
+    () => getRotationModels(settings),
+    [settings.preferredModels, settings.aiModel]
+  );
+  const nextRotationModel = useMemo(
+    () => getNextRotationModel(currentModel, rotationList),
+    [currentModel, rotationList]
+  );
+
+  const handleRotateModel = (targetModel?: string) => {
+    const nextM = targetModel || nextRotationModel;
+    onUpdateSettings?.({ aiModel: nextM });
+    setIsModelDropdownOpen(false);
+    setRotationToast(`Đã xoay vòng sang: ${nextM}`);
+    setTimeout(() => setRotationToast(null), 2500);
+  };
 
   // Helper to remove ```json:agent-action code block from natural text display (both complete & streaming)
   const stripAgentActionCodeBlock = (content: string): string => {
@@ -356,22 +383,66 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         })),
       ];
 
-      const result = await AiService.streamChatCompletion({
-        baseUrl: currentBaseUrl,
-        apiKey: currentApiKey,
-        model: currentModel,
-        messages: apiMessages,
-        signal: controller.signal,
-        onChunk: (_chunk, fullContent) => {
-          // Clean output in real-time to prevent Chinese telemetry leak
-          setStreamingContent(cleanAiOutput(fullContent));
-        },
-        onReasoning: (_chunk, fullReasoning) => {
-          setStreamingReasoning(fullReasoning);
-        },
-      });
+      // Danh sách các model để thử (nếu bật tự động xoay vòng khi lỗi)
+      const modelsToTry =
+        settings.autoFallbackModel !== false
+          ? [currentModel, ...rotationList.filter((m) => m !== currentModel).slice(0, 2)]
+          : [currentModel];
 
-      const fullCleanContent = cleanAiOutput(result.content);
+      let lastError: Error | null = null;
+      let result: { content: string; reasoning: string } | null = null;
+      let modelActuallyUsed = currentModel;
+      let wasAutoRotated = false;
+
+      for (let i = 0; i < modelsToTry.length; i++) {
+        const tryModel = modelsToTry[i];
+        if (i > 0) {
+          wasAutoRotated = true;
+          setStreamingContent(
+            `⚠️ Model \`${modelsToTry[i - 1]}\` ngắt kết nối. Đang tự động xoay vòng sang \`${tryModel}\`...`
+          );
+        }
+
+        try {
+          result = await AiService.streamChatCompletion({
+            baseUrl: currentBaseUrl,
+            apiKey: currentApiKey,
+            model: tryModel,
+            messages: apiMessages,
+            signal: controller.signal,
+            onChunk: (_chunk, fullContent) => {
+              // Clean output in real-time to prevent Chinese telemetry leak
+              setStreamingContent(cleanAiOutput(fullContent));
+            },
+            onReasoning: (_chunk, fullReasoning) => {
+              setStreamingReasoning(fullReasoning);
+            },
+          });
+          modelActuallyUsed = tryModel;
+          lastError = null;
+          break;
+        } catch (tryErr: unknown) {
+          const e = tryErr as Error;
+          if (e.name === 'AbortError') throw e;
+          lastError = e;
+          console.warn(`[AI Chat] Thử model ${tryModel} thất bại:`, e.message);
+        }
+      }
+
+      if (lastError || !result) {
+        throw lastError || new Error('Không thể kết nối đến máy chủ AI.');
+      }
+
+      // Nếu đã tự động xoay vòng sang model dự phòng thành công, lưu lại cấu hình
+      if (wasAutoRotated && onUpdateSettings) {
+        onUpdateSettings({ aiModel: modelActuallyUsed });
+      }
+
+      let fullCleanContent = cleanAiOutput(result.content);
+      if (wasAutoRotated) {
+        fullCleanContent = `> 💡 *Model gốc \`${currentModel}\` bị gián đoạn, AI đã tự động xoay vòng sang \`${modelActuallyUsed}\`.*\n\n${fullCleanContent}`;
+      }
+
       const detectedAction = chatMode === 'agent'
         ? AiService.extractAgentAction(fullCleanContent)
         : null;
@@ -410,7 +481,9 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
         const errorMessage: ChatMessage = {
           id: `msg-${Date.now()}-err`,
           role: 'assistant',
-          content: `⚠️ **Lỗi:** ${err.message || 'Không thể kết nối đến AI. Hãy kiểm tra API Key hoặc chọn Model khác.'}`,
+          content: `⚠️ **Lỗi kết nối Model (${settings.aiModel || 'Hiện tại'}):** ${err.message || 'Không thể kết nối đến AI. Hãy kiểm tra API Key hoặc xoay vòng sang Model khác.'}`,
+          retryPrompt: text,
+          failedModel: settings.aiModel,
           createdAt: Date.now(),
         };
         setSessions((prev) =>
@@ -541,15 +614,82 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 animate-pulse" />
             </div>
 
-            {/* Model Pill - Click to configure */}
-            <button
-              onClick={onOpenSettings}
-              className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-purple-300 font-mono truncate max-w-[150px] sm:max-w-[180px] transition-colors"
-              title="Nhấp để đổi Model hoặc cấu hình API"
-            >
-              <Brain className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
-              <span className="truncate">{currentModel}</span>
-            </button>
+            {/* Model Pill & Quick Rotation Switcher */}
+            <div className="relative flex items-center gap-1">
+              <button
+                onClick={() => setIsModelDropdownOpen((prev) => !prev)}
+                className="flex items-center gap-1 text-[10px] text-zinc-400 hover:text-purple-300 font-mono truncate max-w-[120px] sm:max-w-[150px] transition-colors cursor-pointer group"
+                title="Nhấp để chọn nhanh Model trong danh sách xoay vòng"
+              >
+                <Brain className="w-2.5 h-2.5 text-cyan-400 shrink-0" />
+                <span className="truncate">{currentModel}</span>
+                <ChevronDown className="w-2.5 h-2.5 text-zinc-500 group-hover:text-purple-300 shrink-0" />
+              </button>
+
+              {/* Nút xoay vòng nhanh sang model tiếp theo */}
+              <button
+                onClick={() => handleRotateModel()}
+                className="p-1 rounded text-zinc-400 hover:text-purple-200 hover:bg-purple-600/30 transition-all cursor-pointer"
+                title={`Xoay vòng sang model tiếp theo: ${nextRotationModel}`}
+              >
+                <Shuffle className="w-2.5 h-2.5 text-purple-400" />
+              </button>
+
+              {/* Toast thông báo xoay vòng */}
+              {rotationToast && (
+                <div className="absolute top-6 left-0 z-50 px-2 py-0.5 rounded-lg bg-purple-950/95 border border-purple-500/60 text-purple-200 text-[10px] font-mono shadow-xl whitespace-nowrap animate-in fade-in duration-100">
+                  {rotationToast}
+                </div>
+              )}
+
+              {/* Popup Dropdown chọn nhanh model */}
+              {isModelDropdownOpen && (
+                <div className="absolute top-6 left-0 z-50 w-60 bg-[#161622] border border-[#2e2e42] rounded-xl shadow-2xl p-1.5 space-y-1 text-xs animate-in fade-in zoom-in-95 duration-100">
+                  <div className="px-2 py-1 text-[10px] font-semibold text-zinc-400 border-b border-zinc-800 flex items-center justify-between">
+                    <span>DS Xoay vòng ({rotationList.length}):</span>
+                    <button
+                      onClick={() => {
+                        setIsModelDropdownOpen(false);
+                        onOpenSettings();
+                      }}
+                      className="text-purple-400 hover:underline cursor-pointer"
+                    >
+                      Cài đặt ⚙️
+                    </button>
+                  </div>
+
+                  <div className="max-h-40 overflow-y-auto space-y-0.5">
+                    {rotationList.map((m) => {
+                      const isCurrent = m === currentModel;
+                      return (
+                        <button
+                          key={m}
+                          onClick={() => handleRotateModel(m)}
+                          className={`w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-left text-[11px] font-mono transition-colors cursor-pointer ${
+                            isCurrent
+                              ? 'bg-purple-600/30 text-purple-200 font-bold border border-purple-500/40'
+                              : 'text-zinc-300 hover:bg-zinc-800/70 hover:text-white'
+                          }`}
+                        >
+                          <span className="truncate pr-1">{m}</span>
+                          {isCurrent && <Check className="w-3 h-3 text-emerald-400 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="pt-1 border-t border-zinc-800">
+                    <button
+                      onClick={() => handleRotateModel()}
+                      className="w-full py-1 px-2 rounded-lg bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 font-medium text-center flex items-center justify-center gap-1.5 text-[10px] transition-colors cursor-pointer"
+                    >
+                      <Shuffle className="w-3 h-3" />
+                      <span>Xoay vòng tiếp: {nextRotationModel}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -919,7 +1059,7 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
                     )}
 
                     {/* Action: Create Node from this AI message */}
-                    {onAddNodeFromAi && !msg.agentAction && (
+                    {onAddNodeFromAi && !msg.agentAction && !msg.retryPrompt && (
                       <div className="mt-2.5 pt-2 border-t border-zinc-800/80 flex items-center justify-end">
                         <button
                           type="button"
@@ -938,6 +1078,34 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
                               <span>Tạo thành ô note trên sơ đồ</span>
                             </>
                           )}
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Nút 1-click xoay vòng model & thử lại câu hỏi khi gặp lỗi */}
+                    {msg.retryPrompt && (
+                      <div className="mt-2.5 pt-2 border-t border-rose-500/20 flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextM = getNextRotationModel(settings.aiModel, rotationList);
+                            handleRotateModel(nextM);
+                            setTimeout(() => handleSendMessage(msg.retryPrompt), 50);
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600/30 to-indigo-600/30 hover:from-purple-600/50 hover:to-indigo-600/50 border border-purple-500/40 text-purple-200 text-xs font-semibold transition-all shadow-sm cursor-pointer hover:scale-[1.02]"
+                          title="Xoay sang model tiếp theo và tự động gửi lại câu hỏi"
+                        >
+                          <Shuffle className="w-3.5 h-3.5 text-purple-400" />
+                          <span>
+                            Xoay sang <strong>{nextRotationModel}</strong> & thử lại
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={onOpenSettings}
+                          className="text-[11px] text-zinc-400 hover:text-white underline cursor-pointer"
+                        >
+                          Cài đặt model...
                         </button>
                       </div>
                     )}

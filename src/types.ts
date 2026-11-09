@@ -70,6 +70,8 @@ export interface AppSettings {
   aiApiKey?: string;
   aiModel?: string;
   cachedModels?: string[];
+  preferredModels?: string[]; // Danh sách các model hay dùng để xoay vòng AI
+  autoFallbackModel?: boolean; // Tự động xoay vòng sang model tiếp theo khi gặp lỗi kết nối
   saveChatHistory?: boolean;
   // Supabase Cloud Sync
   supabaseUrl?: string;
@@ -113,6 +115,8 @@ export interface ChatMessage {
   reasoningContent?: string;
   agentAction?: AgentAction;
   isApplied?: boolean;
+  retryPrompt?: string;
+  failedModel?: string;
   createdAt: number;
 }
 

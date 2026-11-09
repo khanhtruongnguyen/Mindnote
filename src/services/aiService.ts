@@ -1,4 +1,4 @@
-import type { MapData, AgentAction, CustomNode, SplitNodeResult, FlashcardItem } from '../types';
+import type { MapData, AgentAction, CustomNode, SplitNodeResult, FlashcardItem, AppSettings } from '../types';
 
 export interface StreamChatOptions {
   baseUrl: string;
@@ -13,6 +13,47 @@ export interface StreamChatOptions {
 export const cleanBaseUrl = (url: string): string => {
   return url.trim().replace(/\/+$/, '');
 };
+
+export const DEFAULT_ROTATION_MODELS = [
+  'dungcsnd113/gemini-flash-3.8',
+  'google/gemini-2.5-flash',
+  'openai/gpt-4o-mini',
+  'deepseek/deepseek-chat',
+];
+
+/**
+ * Trích xuất danh sách model xoay vòng hợp lệ từ AppSettings
+ */
+export function getRotationModels(settings?: Partial<AppSettings>): string[] {
+  const custom = settings?.preferredModels?.map((m) => m.trim()).filter(Boolean);
+  if (custom && custom.length > 0) {
+    return Array.from(new Set(custom));
+  }
+  const current = settings?.aiModel?.trim();
+  const list = current ? [current, ...DEFAULT_ROTATION_MODELS] : DEFAULT_ROTATION_MODELS;
+  return Array.from(new Set(list));
+}
+
+/**
+ * Lấy model tiếp theo trong danh sách xoay vòng theo hình thức tròn (Round-Robin)
+ */
+export function getNextRotationModel(currentModel?: string, preferredModels?: string[]): string {
+  const models =
+    preferredModels && preferredModels.length > 0
+      ? preferredModels.map((m) => m.trim()).filter(Boolean)
+      : DEFAULT_ROTATION_MODELS;
+
+  if (models.length === 0) return currentModel || DEFAULT_ROTATION_MODELS[0];
+  if (models.length === 1) return models[0];
+
+  const curr = (currentModel || '').toLowerCase().trim();
+  const idx = models.findIndex((m) => m.toLowerCase().trim() === curr);
+
+  if (idx === -1 || idx >= models.length - 1) {
+    return models[0];
+  }
+  return models[idx + 1];
+}
 
 /**
  * Loại bỏ các nhãn hệ thống/telemetry tiếng Trung (như [ATLAS-OK], 问题, 改动, 方法, 验证)

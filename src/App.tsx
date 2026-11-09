@@ -1339,6 +1339,7 @@ export function App() {
           loadingCaptionIds={loadingCaptionIds}
           onUpdateAttachmentCaption={handleUpdateAttachmentCaption}
           onRegenerateAttachmentCaption={handleRegenerateAttachmentCaption}
+          onUpdateSettings={handleSaveSettings}
           isMobile={isMobile}
           onUpdateNode={handleUpdateNode}
           onDeleteNode={handleDeleteNode}
@@ -1486,6 +1487,7 @@ export function App() {
         settings={settings}
         onUpdateFlashcards={handleUpdateFlashcards}
         onFocusNode={handleFocusNode}
+        onUpdateSettings={handleSaveSettings}
       />
     </div>
   );
