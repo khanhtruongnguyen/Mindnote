@@ -184,16 +184,14 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     scrollToBottom();
   }, [messages, streamingContent, streamingReasoning]);
 
-  if (!isOpen) return null;
-
-  const currentModel = settings.aiModel || 'dungcsnd113/gemini-flash-3.8';
-  const currentBaseUrl = settings.aiBaseUrl || 'https://api.xah.io/v1';
+  const currentModel = settings?.aiModel || 'dungcsnd113/gemini-flash-3.8';
+  const currentBaseUrl = settings?.aiBaseUrl || 'https://api.xah.io/v1';
   const currentApiKey =
-    settings.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
+    settings?.aiApiKey || 'sk-6e5bd68e2310d13bcf3747838f1cf8138d68e14e318e4e7e68cfb62a30aff59b';
 
   const rotationList = useMemo(
     () => getRotationModels(settings),
-    [settings.preferredModels, settings.aiModel]
+    [settings?.preferredModels, settings?.aiModel]
   );
   const nextRotationModel = useMemo(
     () => getNextRotationModel(currentModel, rotationList),
@@ -207,6 +205,8 @@ export const AiChatPanel: React.FC<AiChatPanelProps> = ({
     setRotationToast(`Đã xoay vòng sang: ${nextM}`);
     setTimeout(() => setRotationToast(null), 2500);
   };
+
+  if (!isOpen) return null;
 
   // Helper to remove ```json:agent-action code block from natural text display (both complete & streaming)
   const stripAgentActionCodeBlock = (content: string): string => {

@@ -1405,18 +1405,23 @@ export function App() {
       />
 
       {/* AI Chat Panel (Floating on PC, Bottom sheet on Mobile, with AI Agent Mode) */}
-      <AiChatPanel
-        isOpen={isAiChatOpen}
-        onClose={() => setIsAiChatOpen(false)}
-        activeMap={activeMap}
-        settings={settings}
-        isMobile={isMobile}
-        onOpenSettings={() => setIsAiSettingsOpen(true)}
-        onFocusNode={handleFocusNode}
-        onAddNodeFromAi={handleAddNodeFromAi}
-        onApplyAgentAction={handleApplyAgentAction}
-        onUpdateSettings={handleSaveSettings}
-      />
+      <ErrorBoundary
+        fallbackTitle="Không thể tải cửa sổ Trợ lý AI"
+        onReset={() => setIsAiChatOpen(false)}
+      >
+        <AiChatPanel
+          isOpen={isAiChatOpen}
+          onClose={() => setIsAiChatOpen(false)}
+          activeMap={activeMap}
+          settings={settings}
+          isMobile={isMobile}
+          onOpenSettings={() => setIsAiSettingsOpen(true)}
+          onFocusNode={handleFocusNode}
+          onAddNodeFromAi={handleAddNodeFromAi}
+          onApplyAgentAction={handleApplyAgentAction}
+          onUpdateSettings={handleSaveSettings}
+        />
+      </ErrorBoundary>
 
       {/* AI API & Model Settings Modal */}
       <AiSettingsModal
