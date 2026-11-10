@@ -153,8 +153,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setSplitError(null);
   }, [selectedNode?.id]);
 
-  if (!selectedNode) return null;
-
   const rotationList = useMemo(
     () => getRotationModels(settings),
     [settings?.preferredModels, settings?.aiModel]
@@ -164,6 +162,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     () => getNextRotationModel(currentModel, rotationList),
     [currentModel, rotationList]
   );
+
+  if (!selectedNode) return null;
 
   const handleRotateModel = () => {
     if (!onUpdateSettings) return;
