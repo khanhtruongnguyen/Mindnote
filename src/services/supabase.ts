@@ -117,7 +117,8 @@ function base64ToBlob(base64: string): { blob: Blob; mimeType: string } {
  */
 export async function uploadAttachmentToSupabase(
   attachId: string,
-  dataUrlOrBase64: string
+  dataUrlOrBase64: string,
+  mapId?: string
 ): Promise<string | null> {
   const client = getSupabase();
   if (!client) return null;
@@ -125,7 +126,7 @@ export async function uploadAttachmentToSupabase(
   try {
     const { blob, mimeType } = base64ToBlob(dataUrlOrBase64);
     const ext = mimeType.split('/')[1] || 'png';
-    const filePath = `uploads/${attachId}.${ext}`;
+    const filePath = mapId ? `uploads/${mapId}/${attachId}.${ext}` : `uploads/${attachId}.${ext}`;
 
     const { error: uploadErr } = await client.storage
       .from('mindnote_attachments')
@@ -148,18 +149,195 @@ export async function uploadAttachmentToSupabase(
 }
 
 /**
- * Đồng bộ 1 Map lên Supabase (Upsert)
+ * Xóa toàn bộ ảnh của 1 Map trên Supabase Storage
  */
-export async function syncMapToSupabase(map: MapData): Promise<boolean> {
+export async function deleteMapAttachmentsFromSupabase(
+  mapId: string,
+  extraAttachments?: Record<string, string>
+): Promise<number> {
   const client = getSupabase();
-  if (!client) return false;
+  if (!client) return 0;
+
+  let totalRemoved = 0;
+  try {
+    // 1. Quét toàn bộ file trong thư mục uploads/${mapId}/
+    const folderPath = `uploads/${mapId}`;
+    const { data: files, error: listErr } = await client.storage
+      .from('mindnote_attachments')
+      .list(folderPath, { limit: 1000 });
+
+    if (!listErr && files && files.length > 0) {
+      const filePaths = files
+        .filter((f) => f.name && f.name !== '.emptyFolderPlaceholder')
+        .map((f) => `${folderPath}/${f.name}`);
+
+      if (filePaths.length > 0) {
+        const { error: removeErr } = await client.storage
+          .from('mindnote_attachments')
+          .remove(filePaths);
+
+        if (!removeErr) {
+          totalRemoved += filePaths.length;
+        } else {
+          console.warn('[Supabase Storage] Lỗi xóa ảnh trong thư mục map:', removeErr);
+        }
+      }
+    }
+
+    // 2. Nếu có danh sách ảnh cũ (legacy) nằm ngoài thư mục uploads/${mapId}/
+    if (extraAttachments) {
+      const legacyPaths: string[] = [];
+      for (const uri of Object.values(extraAttachments)) {
+        if (typeof uri === 'string' && uri.includes('/mindnote_attachments/')) {
+          const match = uri.match(/mindnote_attachments\/(uploads\/[^?#]+)/);
+          if (match && match[1]) {
+            legacyPaths.push(match[1]);
+          }
+        }
+      }
+      if (legacyPaths.length > 0) {
+        const { error } = await client.storage.from('mindnote_attachments').remove(legacyPaths);
+        if (!error) totalRemoved += legacyPaths.length;
+      }
+    }
+
+    return totalRemoved;
+  } catch (err) {
+    console.warn('[Supabase Storage] Exception deleting map attachments:', err);
+    return totalRemoved;
+  }
+}
+
+/**
+ * Xóa các ảnh rác (mồ côi) của 1 Map trên Supabase Storage
+ */
+export async function deleteOrphanAttachmentsFromSupabase(
+  mapId: string,
+  usedKeys: Set<string>
+): Promise<{ removedCount: number; removedFiles: string[] }> {
+  const client = getSupabase();
+  if (!client) return { removedCount: 0, removedFiles: [] };
 
   try {
+    const folderPath = `uploads/${mapId}`;
+    const { data: files, error: listErr } = await client.storage
+      .from('mindnote_attachments')
+      .list(folderPath, { limit: 1000 });
+
+    if (listErr || !files || files.length === 0) {
+      return { removedCount: 0, removedFiles: [] };
+    }
+
+    const orphanPaths: string[] = [];
+    const removedFiles: string[] = [];
+
+    for (const f of files) {
+      if (!f.name || f.name === '.emptyFolderPlaceholder') continue;
+      
+      const fileName = f.name;
+      const baseName = fileName.replace(/\.[^/.]+$/, ''); // Bỏ đuôi .png/.webp
+
+      const isUsed = usedKeys.has(fileName) || usedKeys.has(baseName);
+      if (!isUsed) {
+        orphanPaths.push(`${folderPath}/${fileName}`);
+        removedFiles.push(fileName);
+      }
+    }
+
+    if (orphanPaths.length > 0) {
+      const { error: removeErr } = await client.storage
+        .from('mindnote_attachments')
+        .remove(orphanPaths);
+
+      if (removeErr) {
+        console.warn('[Supabase Storage] Lỗi xóa file ảnh mồ côi:', removeErr);
+        return { removedCount: 0, removedFiles: [] };
+      }
+    }
+
+    return { removedCount: orphanPaths.length, removedFiles };
+  } catch (err) {
+    console.warn('[Supabase Storage] Exception deleting orphan files:', err);
+    return { removedCount: 0, removedFiles: [] };
+  }
+}
+
+/**
+ * Đẩy toàn bộ ảnh Base64 trong 1 Map lên Supabase Storage và chuyển đổi thành URL CDN
+ */
+export async function uploadMapAttachmentsToSupabase(
+  map: MapData,
+  onProgress?: (current: number, total: number) => void
+): Promise<{ updatedMap: MapData; uploadedCount: number }> {
+  const client = getSupabase();
+  if (!client) return { updatedMap: map, uploadedCount: 0 };
+
+  const currentAttachments = { ...(map.attachments || {}) };
+  const entriesToUpload: [string, string][] = Object.entries(currentAttachments).filter(
+    ([, val]) => typeof val === 'string' && val.startsWith('data:image/')
+  );
+
+  if (entriesToUpload.length === 0) {
+    return { updatedMap: map, uploadedCount: 0 };
+  }
+
+  let uploadedCount = 0;
+  for (let i = 0; i < entriesToUpload.length; i++) {
+    const [attachId, base64] = entriesToUpload[i];
+    onProgress?.(i + 1, entriesToUpload.length);
+
+    try {
+      const cdnUrl = await uploadAttachmentToSupabase(attachId, base64, map.id);
+      if (cdnUrl) {
+        currentAttachments[attachId] = cdnUrl;
+        uploadedCount++;
+      }
+    } catch (e) {
+      console.warn(`[Supabase Storage] Lỗi upload ảnh ${attachId}:`, e);
+    }
+  }
+
+  const updatedMap: MapData = {
+    ...map,
+    attachments: currentAttachments,
+    updatedAt: Date.now(),
+  };
+
+  return { updatedMap, uploadedCount };
+}
+
+/**
+ * Đồng bộ 1 Map lên Supabase (Upsert).
+ * Tự động đẩy các ảnh Base64 lên Supabase Storage trước khi lưu để DB luôn siêu nhẹ!
+ */
+export async function syncMapToSupabase(
+  map: MapData,
+  autoUploadImages: boolean = true
+): Promise<{ success: boolean; updatedMap: MapData; uploadedImagesCount: number }> {
+  const client = getSupabase();
+  if (!client) return { success: false, updatedMap: map, uploadedImagesCount: 0 };
+
+  try {
+    let effectiveMap = map;
+    let uploadedImagesCount = 0;
+
+    // Tự động đẩy ảnh Base64 lên Supabase Storage nếu có
+    if (autoUploadImages && map.attachments) {
+      const hasBase64 = Object.values(map.attachments).some(
+        (v) => typeof v === 'string' && v.startsWith('data:image/')
+      );
+      if (hasBase64) {
+        const uploadRes = await uploadMapAttachmentsToSupabase(map);
+        effectiveMap = uploadRes.updatedMap;
+        uploadedImagesCount = uploadRes.uploadedCount;
+      }
+    }
+
     const { data: authData } = await client.auth.getUser();
     const userId = authData?.user?.id || null;
 
-    // Làm sạch attachments/closure trước khi lưu
-    const cleanNodes = (map.nodes || []).map((node) => {
+    // Làm sạch closures trước khi lưu
+    const cleanNodes = (effectiveMap.nodes || []).map((node) => {
       const rawData = (node.data || {}) as Record<string, unknown>;
       const { attachments, onNavigate, onNodeClick, ...cleanData } = rawData;
       return {
@@ -169,48 +347,58 @@ export async function syncMapToSupabase(map: MapData): Promise<boolean> {
     });
 
     const payload = {
-      id: map.id,
-      name: map.name,
+      id: effectiveMap.id,
+      name: effectiveMap.name,
       nodes: cleanNodes,
-      edges: map.edges || [],
-      context: map.context || '',
-      attachments: map.attachments || {},
-      created_at: map.createdAt || Date.now(),
-      updated_at: map.updatedAt || Date.now(),
+      edges: effectiveMap.edges || [],
+      context: effectiveMap.context || '',
+      attachments: effectiveMap.attachments || {},
+      created_at: effectiveMap.createdAt || Date.now(),
+      updated_at: effectiveMap.updatedAt || Date.now(),
       ...(userId ? { user_id: userId } : {}),
     };
 
     const { error } = await client.from('maps').upsert(payload, { onConflict: 'id' });
     if (error) {
       console.error('[Supabase] Error syncing map:', error);
-      return false;
+      return { success: false, updatedMap: effectiveMap, uploadedImagesCount };
     }
-    return true;
+    return { success: true, updatedMap: effectiveMap, uploadedImagesCount };
   } catch (err) {
     console.error('[Supabase] syncMapToSupabase exception:', err);
-    return false;
+    return { success: false, updatedMap: map, uploadedImagesCount: 0 };
   }
 }
 
 /**
  * Đồng bộ toàn bộ danh sách Map lên Supabase
  */
-export async function syncAllMapsToSupabase(maps: MapData[]): Promise<{ count: number; error?: string }> {
+export async function syncAllMapsToSupabase(
+  maps: MapData[],
+  autoUploadImages: boolean = true
+): Promise<{ count: number; updatedMaps: MapData[]; error?: string }> {
   const client = getSupabase();
   if (!client) {
-    return { count: 0, error: 'Chưa cấu hình Supabase URL & Anon Key.' };
+    return { count: 0, updatedMaps: maps, error: 'Chưa cấu hình Supabase URL & Anon Key.' };
   }
 
   try {
     let successCount = 0;
+    const updatedMaps: MapData[] = [];
+
     for (const map of maps) {
-      const ok = await syncMapToSupabase(map);
-      if (ok) successCount++;
+      const res = await syncMapToSupabase(map, autoUploadImages);
+      if (res.success) {
+        successCount++;
+        updatedMaps.push(res.updatedMap);
+      } else {
+        updatedMaps.push(map);
+      }
     }
-    return { count: successCount };
+    return { count: successCount, updatedMaps };
   } catch (e: unknown) {
     const err = e as Error;
-    return { count: 0, error: err.message };
+    return { count: 0, updatedMaps: maps, error: err.message };
   }
 }
 
@@ -248,16 +436,31 @@ export async function fetchAllMapsFromSupabase(): Promise<MapData[]> {
 }
 
 /**
- * Xóa 1 bản đồ khỏi Supabase
+ * Xóa 1 bản đồ khỏi Supabase (Xóa cả map trong DB và toàn bộ ảnh trên Storage bucket)
  */
-export async function deleteMapFromSupabase(mapId: string): Promise<boolean> {
+export async function deleteMapFromSupabase(
+  mapId: string,
+  mapAttachments?: Record<string, string>
+): Promise<boolean> {
   const client = getSupabase();
   if (!client) return false;
 
   try {
+    // 1. Xóa toàn bộ ảnh đính kèm của map này trên Storage bucket
+    await deleteMapAttachmentsFromSupabase(mapId, mapAttachments);
+
+    // 2. Xóa các phiên chat AI liên quan đến map
+    try {
+      await client.from('chat_sessions').delete().eq('map_id', mapId);
+    } catch {
+      // ignore
+    }
+
+    // 3. Xóa bản đồ trong bảng maps
     const { error } = await client.from('maps').delete().eq('id', mapId);
     return !error;
-  } catch {
+  } catch (err) {
+    console.error('[Supabase] deleteMapFromSupabase error:', err);
     return false;
   }
 }

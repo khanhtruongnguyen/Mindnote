@@ -34,7 +34,12 @@ import {
   syncMapToSupabase,
   subscribeToRemoteMaps,
   uploadAttachmentToSupabase,
+  deleteMapFromSupabase,
+  uploadMapAttachmentsToSupabase,
+  deleteOrphanAttachmentsFromSupabase,
 } from './services/supabase';
+import { cleanMapOrphanAttachments, extractUsedAttachmentKeys } from './utils/imageOptimizer';
+import { idbDeleteChatSessions } from './services/db';
 import confetti from 'canvas-confetti';
 
 export function App() {
@@ -321,9 +326,9 @@ export function App() {
           console.warn('Lỗi khi lưu ảnh xuống máy tính:', e);
         }
       } else if (settings.supabaseUrl && settings.supabaseAnonKey) {
-        // 2. Bản Web: Tải lên Supabase Storage CDN nếu có cấu hình
+        // 2. Bản Web: Tải lên Supabase Storage CDN nếu có cấu hình (lưu theo thư mục map uploads/{mapId}/)
         try {
-          const cdnUrl = await uploadAttachmentToSupabase(attachId, base64);
+          const cdnUrl = await uploadAttachmentToSupabase(attachId, base64, activeMap.id);
           if (cdnUrl) {
             finalUri = cdnUrl;
           }
@@ -349,7 +354,7 @@ export function App() {
         })
       );
 
-      // 3. Tự động gọi AI chạy ngầm để tạo bản tóm tắt ẩn cho bức ảnh vừa đính kèm (dùng base64 trực tiếp để nhanh & không phụ thuộc mạng tải lại)
+      // 3. Tự động gọi AI chạy ngầm để tạo bản tóm tắt ẩn cho bức ảnh vừa đính kèm
       if (settings.aiApiKey?.trim()) {
         generateCaptionForAttachment(
           targetMapId,
@@ -359,6 +364,8 @@ export function App() {
           false
         );
       }
+
+      return finalUri;
     },
     [
       activeMap.id,
@@ -965,17 +972,111 @@ export function App() {
     );
   };
 
-  // Delete map
-  const handleDeleteMap = (mapId: string) => {
+  // Delete map (Đồng thời xóa sạch toàn bộ ảnh và dữ liệu liên quan trên Supabase Storage & Cloud)
+  const handleDeleteMap = async (mapId: string) => {
     if (maps.length <= 1) {
       alert('Bạn cần giữ ít nhất 1 bản đồ.');
       return;
     }
+    const mapToDelete = maps.find((m) => m.id === mapId);
+    const mapName = mapToDelete?.name || 'này';
+    if (!window.confirm(`Xác nhận xóa bản đồ "${mapName}"?\n(Toàn bộ ghi chú và ảnh đính kèm trên Supabase Cloud cũng sẽ được xóa sạch vĩnh viễn)`)) {
+      return;
+    }
+
     const remaining = maps.filter((m) => m.id !== mapId);
     setMaps(remaining);
     if (activeMapId === mapId) {
       setActiveMapId(remaining[0].id);
       setSelectedNodeId(null);
+    }
+
+    // 1. Xóa bản đồ và toàn bộ ảnh của map trên Supabase Storage
+    if (settings.supabaseUrl && settings.supabaseAnonKey) {
+      deleteMapFromSupabase(mapId, mapToDelete?.attachments).catch((err) => {
+        console.warn('Lỗi khi xóa map & ảnh trên Supabase:', err);
+      });
+    }
+
+    // 2. Xóa các phiên chat AI trong IndexedDB
+    try {
+      await idbDeleteChatSessions(mapId);
+    } catch {
+      // ignore
+    }
+  };
+
+  // Dọn dẹp ảnh rác (Orphan Attachments): Xóa các ảnh không còn được dùng trong các ô ghi chú
+  const handleCleanOrphanImages = async (targetMapId?: string) => {
+    const mapToClean = maps.find((m) => m.id === (targetMapId || activeMapId));
+    if (!mapToClean) return;
+
+    // 1. Dọn dẹp cục bộ trong attachments
+    const { cleanedMap, removedKeys, freedBytesEstimate } = cleanMapOrphanAttachments(mapToClean);
+    let remoteRemovedCount = 0;
+
+    // 2. Nếu có Supabase, quét và xóa các file mồ côi trên Supabase Storage
+    if (settings.supabaseUrl && settings.supabaseAnonKey) {
+      try {
+        const usedKeys = extractUsedAttachmentKeys(cleanedMap.nodes || []);
+        const remoteRes = await deleteOrphanAttachmentsFromSupabase(cleanedMap.id, usedKeys);
+        remoteRemovedCount = remoteRes.removedCount;
+      } catch (err) {
+        console.warn('Lỗi khi dọn ảnh mồ côi trên Supabase Storage:', err);
+      }
+    }
+
+    const totalCleaned = removedKeys.length + remoteRemovedCount;
+    if (totalCleaned === 0) {
+      alert(`Bản đồ "${mapToClean.name}" rất gọn gàng, không phát hiện ảnh rác nào!`);
+      return;
+    }
+
+    // Cập nhật lại state và lưu map đã làm sạch
+    setMaps((prev) => prev.map((m) => (m.id === cleanedMap.id ? cleanedMap : m)));
+
+    // Đồng bộ map đã làm sạch lên Supabase nếu có
+    if (settings.supabaseUrl && settings.supabaseAnonKey) {
+      syncMapToSupabase(cleanedMap, false).catch(console.warn);
+    }
+
+    const freedMb = (freedBytesEstimate / (1024 * 1024)).toFixed(2);
+    alert(` Đã dọn dẹp ${totalCleaned} ảnh rác (cục bộ: ${removedKeys.length}, đám mây: ${remoteRemovedCount})!\nGiải phóng ước tính ~${freedMb} MB bộ nhớ.`);
+  };
+
+  // Đẩy toàn bộ ảnh Base64 trong Map lên Supabase Storage
+  const handleOffloadImagesToSupabase = async (targetMapId?: string) => {
+    if (!settings.supabaseUrl || !settings.supabaseAnonKey) {
+      setIsSupabaseModalOpen(true);
+      alert('Vui lòng kết nối Supabase Cloud trước để sử dụng tính năng lưu trữ ảnh đám mây.');
+      return;
+    }
+
+    const mapToUpload = maps.find((m) => m.id === (targetMapId || activeMapId));
+    if (!mapToUpload) return;
+
+    const currentAttachments = mapToUpload.attachments || {};
+    const base64Count = Object.values(currentAttachments).filter(
+      (v) => typeof v === 'string' && v.startsWith('data:image/')
+    ).length;
+
+    if (base64Count === 0) {
+      alert(`Bản đồ "${mapToUpload.name}" không có ảnh Base64 nào cần chuyển đổi (toàn bộ ảnh đã nằm trên Cloud CDN hoặc không có ảnh).`);
+      return;
+    }
+
+    try {
+      const { updatedMap, uploadedCount } = await uploadMapAttachmentsToSupabase(mapToUpload);
+      if (uploadedCount > 0) {
+        setMaps((prev) => prev.map((m) => (m.id === updatedMap.id ? updatedMap : m)));
+        await syncMapToSupabase(updatedMap, false);
+        alert(` Đã tải ${uploadedCount} ảnh lên Supabase Storage thành công!\nDung lượng bản đồ "${mapToUpload.name}" đã được tối ưu siêu nhẹ.`);
+      } else {
+        alert('Không có ảnh nào được tải lên hoặc quá trình tải gặp sự cố.');
+      }
+    } catch (err) {
+      console.error('Lỗi khi tải ảnh lên Supabase Storage:', err);
+      alert('Đã xảy ra lỗi khi tải ảnh lên Supabase Storage. Vui lòng kiểm tra lại cấu hình Supabase Storage.');
     }
   };
 
@@ -1159,6 +1260,16 @@ export function App() {
     setActiveMapId(existingMapId);
     setSelectedNodeId(null);
     confetti({ particleCount: 30, spread: 60, origin: { y: 0.8 } });
+
+    // Tự động đẩy ảnh lên Supabase Storage nếu đã kết nối
+    if (settings.supabaseUrl && settings.supabaseAnonKey) {
+      const targetMapToSync = { ...finalMap, id: existingMapId, updatedAt: now };
+      syncMapToSupabase(targetMapToSync, true).then((res) => {
+        if (res.success && res.uploadedImagesCount > 0) {
+          setMaps((prev) => prev.map((m) => (m.id === res.updatedMap.id ? res.updatedMap : m)));
+        }
+      }).catch(console.warn);
+    }
   };
 
   // 2. Thêm thành Map mới độc lập
@@ -1191,6 +1302,15 @@ export function App() {
     setActiveMapId(newId);
     setSelectedNodeId(null);
     confetti({ particleCount: 30, spread: 60, origin: { y: 0.8 } });
+
+    // Tự động đẩy ảnh lên Supabase Storage nếu đã kết nối
+    if (settings.supabaseUrl && settings.supabaseAnonKey) {
+      syncMapToSupabase(newMap, true).then((res) => {
+        if (res.success && res.uploadedImagesCount > 0) {
+          setMaps((prev) => prev.map((m) => (m.id === res.updatedMap.id ? res.updatedMap : m)));
+        }
+      }).catch(console.warn);
+    }
   };
 
   // 3. Gộp file đa bản đồ vào kho hiện tại
@@ -1278,6 +1398,8 @@ export function App() {
         onPickGoogleDrive={handlePickGoogleDrive}
         onOpenGoogleDriveModal={() => setIsGoogleDriveModalOpen(true)}
         onOpenSupabaseModal={() => setIsSupabaseModalOpen(true)}
+        onCleanOrphanImages={() => handleCleanOrphanImages(activeMap.id)}
+        onOffloadImagesToSupabase={() => handleOffloadImagesToSupabase(activeMap.id)}
         onOpenHelpModal={() => setIsHelpModalOpen(true)}
         onOpenConnectModal={() => setIsConnectModalOpen(true)}
         onOpenContextModal={() => setIsContextModalOpen(true)}

@@ -50,12 +50,13 @@ import {
   escapeAttr,
   escapeHtml,
 } from '../utils/markdownCodec';
+import { optimizeImageModerately } from '../utils/imageOptimizer';
 
 interface UnifiedNoteEditorProps {
   content: string;
   onChange: (newContent: string) => void;
   attachments?: Record<string, string>;
-  onSaveAttachment?: (id: string, base64: string) => void;
+  onSaveAttachment?: (id: string, base64: string) => Promise<string | void> | void;
   allNodes?: CustomNode[];
   currentNodeId?: string;
   nodeLabel?: string;
@@ -1062,7 +1063,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
 
   // Smart Paste: Handles pasted images AND auto-formats pasted Markdown/LaTeX from AI/Notes
   const handlePaste = useCallback(
-    (e: React.ClipboardEvent<HTMLDivElement>) => {
+    async (e: React.ClipboardEvent<HTMLDivElement>) => {
       const items = e.clipboardData?.items;
       if (items && onSaveAttachment) {
         for (let i = 0; i < items.length; i++) {
@@ -1070,16 +1071,18 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             e.preventDefault();
             const file = items[i].getAsFile();
             if (file) {
-              const reader = new FileReader();
-              reader.onload = (event) => {
-                const base64 = event.target?.result as string;
+              try {
+                // Nén vừa phải: bảo toàn nét chữ & công thức toán, không nén nếu file <= 800KB
+                const { dataUrl } = await optimizeImageModerately(file);
                 const attachId = `img-${Date.now()}`;
-                onSaveAttachment(attachId, base64);
+                const saveResult = await onSaveAttachment(attachId, dataUrl);
+                const displaySrc = (typeof saveResult === 'string' && saveResult) ? saveResult : dataUrl;
                 insertHtmlAtCursor(
-                  `<span class="mn-image-widget" contenteditable="false" data-raw-src="attachment:${attachId}" data-alt="Ảnh dán"><img src="${escapeAttr(base64)}" alt="Ảnh dán" class="mn-editor-img" /></span><p><br></p>`
+                  `<span class="mn-image-widget" contenteditable="false" data-raw-src="attachment:${attachId}" data-alt="Ảnh dán"><img src="${escapeAttr(displaySrc)}" alt="Ảnh dán" class="mn-editor-img" /></span><p><br></p>`
                 );
-              };
-              reader.readAsDataURL(file);
+              } catch (err) {
+                console.warn('Lỗi xử lý dán ảnh:', err);
+              }
             }
             return;
           }
@@ -1098,19 +1101,21 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   );
 
   // Upload Image from disk
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && onSaveAttachment) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target?.result as string;
+      try {
+        // Nén vừa phải: bảo toàn nét chữ & công thức toán, không nén nếu file <= 800KB
+        const { dataUrl } = await optimizeImageModerately(file);
         const attachId = `img-${Date.now()}`;
-        onSaveAttachment(attachId, base64);
+        const saveResult = await onSaveAttachment(attachId, dataUrl);
+        const displaySrc = (typeof saveResult === 'string' && saveResult) ? saveResult : dataUrl;
         insertHtmlAtCursor(
-          `<span class="mn-image-widget" contenteditable="false" data-raw-src="attachment:${attachId}" data-alt="${escapeAttr(file.name)}"><img src="${escapeAttr(base64)}" alt="${escapeAttr(file.name)}" class="mn-editor-img" /><span class="mn-img-caption">${escapeHtml(file.name)}</span></span><p><br></p>`
+          `<span class="mn-image-widget" contenteditable="false" data-raw-src="attachment:${attachId}" data-alt="${escapeAttr(file.name)}"><img src="${escapeAttr(displaySrc)}" alt="${escapeAttr(file.name)}" class="mn-editor-img" /><span class="mn-img-caption">${escapeHtml(file.name)}</span></span><p><br></p>`
         );
-      };
-      reader.readAsDataURL(file);
+      } catch (err) {
+        console.warn('Lỗi xử lý tải ảnh từ máy tính:', err);
+      }
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
   };

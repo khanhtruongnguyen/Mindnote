@@ -15,13 +15,18 @@ import {
   User as UserIcon,
   LogOut,
   Zap,
+  Trash2,
+  Image as ImageIcon,
 } from 'lucide-react';
 import {
   testSupabaseConnection,
   syncAllMapsToSupabase,
   fetchAllMapsFromSupabase,
+  uploadMapAttachmentsToSupabase,
+  deleteOrphanAttachmentsFromSupabase,
   SupabaseAuth,
 } from '../services/supabase';
+import { cleanMapOrphanAttachments, extractUsedAttachmentKeys } from '../utils/imageOptimizer';
 import type { MapData, AppSettings } from '../types';
 
 interface SupabaseSyncModalProps {
@@ -61,6 +66,85 @@ export const SupabaseSyncModal: React.FC<SupabaseSyncModalProps> = ({
   const [authLoading, setAuthLoading] = useState(false);
 
   const [copiedSql, setCopiedSql] = useState(false);
+  const [cleaningOrphans, setCleaningOrphans] = useState(false);
+  const [offloadingImages, setOffloadingImages] = useState(false);
+
+  const totalAttachmentsCount = maps.reduce(
+    (acc, m) => acc + Object.keys(m.attachments || {}).length,
+    0
+  );
+  const base64AttachmentsCount = maps.reduce(
+    (acc, m) =>
+      acc +
+      Object.values(m.attachments || {}).filter(
+        (v) => typeof v === 'string' && v.startsWith('data:image/')
+      ).length,
+    0
+  );
+
+  const handleCleanOrphansInModal = async () => {
+    setCleaningOrphans(true);
+    setStatusMessage(null);
+    try {
+      let totalCleanedLocal = 0;
+      let totalCleanedRemote = 0;
+      let totalFreedBytes = 0;
+      const nextMaps: MapData[] = [];
+
+      for (const map of maps) {
+        const { cleanedMap, removedKeys, freedBytesEstimate } = cleanMapOrphanAttachments(map);
+        totalCleanedLocal += removedKeys.length;
+        totalFreedBytes += freedBytesEstimate;
+
+        const usedKeys = extractUsedAttachmentKeys(cleanedMap.nodes || []);
+        const remoteRes = await deleteOrphanAttachmentsFromSupabase(cleanedMap.id, usedKeys);
+        totalCleanedRemote += remoteRes.removedCount;
+
+        nextMaps.push(cleanedMap);
+      }
+
+      onMapsLoaded(nextMaps);
+      await syncAllMapsToSupabase(nextMaps, false);
+
+      const totalCleaned = totalCleanedLocal + totalCleanedRemote;
+      const mbStr = (totalFreedBytes / (1024 * 1024)).toFixed(2);
+      setStatusMessage({
+        type: 'success',
+        text: `Đã dọn dẹp ${totalCleaned} ảnh rác (cục bộ: ${totalCleanedLocal}, đám mây: ${totalCleanedRemote})! Giải phóng ~${mbStr} MB.`,
+      });
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err?.message || 'Lỗi khi dọn dẹp ảnh rác.' });
+    } finally {
+      setCleaningOrphans(false);
+    }
+  };
+
+  const handleOffloadImagesInModal = async () => {
+    setOffloadingImages(true);
+    setStatusMessage(null);
+    try {
+      let totalUploaded = 0;
+      const nextMaps: MapData[] = [];
+
+      for (const map of maps) {
+        const { updatedMap, uploadedCount } = await uploadMapAttachmentsToSupabase(map);
+        totalUploaded += uploadedCount;
+        nextMaps.push(updatedMap);
+      }
+
+      onMapsLoaded(nextMaps);
+      await syncAllMapsToSupabase(nextMaps, false);
+
+      setStatusMessage({
+        type: 'success',
+        text: `Đã đẩy ${totalUploaded} ảnh lên Supabase Storage thành công! Tất cả bản đồ hiện đã siêu nhẹ.`,
+      });
+    } catch (err: any) {
+      setStatusMessage({ type: 'error', text: err?.message || 'Lỗi khi tải ảnh lên Supabase Storage.' });
+    } finally {
+      setOffloadingImages(false);
+    }
+  };
 
   useEffect(() => {
     if (isOpen && settings.supabaseUrl && settings.supabaseAnonKey) {
@@ -114,6 +198,9 @@ export const SupabaseSyncModal: React.FC<SupabaseSyncModalProps> = ({
       if (res.error) {
         setStatusMessage({ type: 'error', text: `Lỗi đồng bộ: ${res.error}` });
       } else {
+        if (res.updatedMaps && res.updatedMaps.length > 0) {
+          onMapsLoaded(res.updatedMaps);
+        }
         const now = Date.now();
         onSaveSettings({ lastCloudSyncedAt: now });
         setStatusMessage({
@@ -367,6 +454,47 @@ export const SupabaseSyncModal: React.FC<SupabaseSyncModalProps> = ({
                     className="w-4 h-4 accent-emerald-500 cursor-pointer"
                   />
                 </label>
+              </div>
+
+              {/* Image & Media Storage Management */}
+              <div className="p-3.5 rounded-xl border bg-[#12121a] border-zinc-800/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Lưu trữ hình ảnh (Media Storage)</span>
+                  </div>
+                  <span className="text-[11px] font-mono text-zinc-400">
+                    {totalAttachmentsCount} ảnh ({base64AttachmentsCount} ảnh Base64)
+                  </span>
+                </div>
+
+                <div className="text-[11px] text-zinc-400 leading-relaxed">
+                  Tách riêng dung lượng ảnh ra khỏi Map và lưu trữ trên Supabase Storage bucket <code className="text-purple-300 bg-zinc-800 px-1 py-0.5 rounded font-mono">mindnote_attachments</code> giúp bản đồ siêu nhẹ, mở tức thì và tiết kiệm 95% bộ nhớ.
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleOffloadImagesInModal}
+                    disabled={offloadingImages || base64AttachmentsCount === 0}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-purple-600/20 hover:bg-purple-600/35 border border-purple-500/40 text-purple-200 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    title="Đẩy tất cả ảnh Base64 của các map lên Cloud để giảm dung lượng file"
+                  >
+                    <UploadCloud className="w-3.5 h-3.5 text-purple-400" />
+                    <span>{offloadingImages ? 'Đang đẩy ảnh...' : 'Đẩy ảnh lên Storage'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCleanOrphansInModal}
+                    disabled={cleaningOrphans}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/35 text-amber-200 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                    title="Xóa các ảnh mồ côi không còn xuất hiện trong bất kỳ ô ghi chú nào"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{cleaningOrphans ? 'Đang dọn...' : 'Xóa ảnh rác (Clean)'}</span>
+                  </button>
+                </div>
               </div>
 
               {/* User Account / Auth Section */}

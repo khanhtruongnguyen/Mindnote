@@ -25,6 +25,7 @@ import {
   Zap,
   BookOpen,
   RotateCcw,
+  UploadCloud,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -53,6 +54,8 @@ interface HeaderProps {
   onPickGoogleDrive?: () => void;
   onOpenGoogleDriveModal?: () => void;
   onOpenSupabaseModal?: () => void;
+  onCleanOrphanImages?: () => void;
+  onOffloadImagesToSupabase?: () => void;
   onOpenHelpModal: () => void;
   hasSupabaseConfigured?: boolean;
   hasDriveConfigured?: boolean;
@@ -85,6 +88,8 @@ export const Header: React.FC<HeaderProps> = ({
   onDesktopImport,
   onOpenGoogleDriveModal,
   onOpenSupabaseModal,
+  onCleanOrphanImages,
+  onOffloadImagesToSupabase,
   onOpenHelpModal,
   hasSupabaseConfigured = false,
   hasDriveConfigured = false,
@@ -92,6 +97,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleAi,
 }) => {
   const isDesktop = typeof window !== 'undefined' && Boolean(window.mindnoteDesktop?.isDesktop);
+  const attachmentCount = Object.keys(activeMap.attachments || {}).length;
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [syncDropdownOpen, setSyncDropdownOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -507,6 +513,60 @@ export const Header: React.FC<HeaderProps> = ({
                     )}
                   </div>
 
+                  {/* Mục: Tối ưu & Quản lý Ảnh */}
+                  <div className="border-t border-[#292938] pt-1.5">
+                    <div className="px-2.5 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                      <span>Quản lý & Tối ưu Ảnh</span>
+                      {attachmentCount > 0 && (
+                        <span className="text-[10px] text-purple-400 font-mono">
+                          {attachmentCount} ảnh
+                        </span>
+                      )}
+                    </div>
+
+                    {onCleanOrphanImages && (
+                      <button
+                        onClick={() => {
+                          setSyncDropdownOpen(false);
+                          onCleanOrphanImages();
+                        }}
+                        className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-amber-500/15 text-zinc-200 transition-colors group cursor-pointer"
+                        title="Quét và xóa ảnh mồ côi không còn dùng trong các ô ghi chú"
+                      >
+                        <Trash2 className="w-4 h-4 text-amber-400 shrink-0 group-hover:scale-110 transition-transform" />
+                        <div>
+                          <div className="text-xs font-semibold text-amber-300">
+                            Xóa ảnh rác trong Map này
+                          </div>
+                          <div className="text-[11px] text-zinc-400 leading-tight">
+                            Quét & xóa ảnh không còn dùng trên map & Supabase
+                          </div>
+                        </div>
+                      </button>
+                    )}
+
+                    {hasSupabaseConfigured && onOffloadImagesToSupabase && (
+                      <button
+                        onClick={() => {
+                          setSyncDropdownOpen(false);
+                          onOffloadImagesToSupabase();
+                        }}
+                        className="w-full flex items-center gap-2.5 p-2 rounded-xl text-left hover:bg-emerald-600/15 text-zinc-200 transition-colors group cursor-pointer mt-0.5"
+                        title="Đẩy toàn bộ ảnh Base64 lên Supabase Storage để map siêu nhẹ"
+                      >
+                        <UploadCloud className="w-4 h-4 text-emerald-400 shrink-0 group-hover:scale-110 transition-transform" />
+                        <div>
+                          <div className="text-xs font-semibold text-emerald-300">
+                            Đẩy toàn bộ ảnh lên Supabase Storage
+                          </div>
+                          <div className="text-[11px] text-zinc-400 leading-tight">
+                            Lưu ảnh lên Cloud CDN, map chỉ còn link URL siêu nhẹ
+                          </div>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+
                   {/* Mục 2: Xuất & Nhập Tệp Sao Lưu (JSON) */}
                   <div className="border-t border-[#292938] pt-1.5">
                     <div className="px-2.5 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
@@ -809,6 +869,32 @@ export const Header: React.FC<HeaderProps> = ({
                   <Upload className="w-4 h-4 text-emerald-400" />
                   <span>Nhập file JSON sao lưu</span>
                 </button>
+
+                {onCleanOrphanImages && (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onCleanOrphanImages();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-amber-300 hover:bg-amber-950/40 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4 text-amber-400" />
+                    <span>Xóa ảnh rác trong Map ({attachmentCount} ảnh)</span>
+                  </button>
+                )}
+
+                {hasSupabaseConfigured && onOffloadImagesToSupabase && (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onOffloadImagesToSupabase();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-emerald-300 hover:bg-emerald-950/40 transition-colors"
+                  >
+                    <UploadCloud className="w-4 h-4 text-emerald-400" />
+                    <span>Đẩy toàn bộ ảnh lên Supabase</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => {
