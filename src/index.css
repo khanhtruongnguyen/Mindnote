@@ -500,7 +500,8 @@
   margin: 0.6em 0;
   max-width: 100%;
   text-align: center;
-  cursor: pointer;
+  cursor: zoom-in;
+  position: relative;
 }
 
 .mn-doc-surface .mn-editor-img {
@@ -512,6 +513,13 @@
   object-fit: contain;
   margin: 0 auto;
   display: block;
+  cursor: zoom-in;
+  transition: transform 0.18s ease, border-color 0.18s ease;
+}
+
+.mn-doc-surface .mn-editor-img:hover {
+  transform: scale(1.015);
+  border-color: rgba(168, 85, 247, 0.6);
 }
 
 .mn-doc-surface .mn-img-caption {

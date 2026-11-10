@@ -3,8 +3,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
-import { ExternalLink, Lightbulb, Compass } from 'lucide-react';
+import { ExternalLink, Lightbulb, Compass, Maximize2 } from 'lucide-react';
 import { parseBoxBlock } from '../utils/markdownCodec';
+import { openImageViewer } from './ImageViewerModal';
 
 function parseInlineCssToReact(cssString: string): React.CSSProperties {
   const styleObj: Record<string, string> = {};
@@ -232,13 +233,24 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
       }
 
       return (
-        <span className="block my-3">
+        <span
+          className="relative inline-block max-w-full my-3 group cursor-zoom-in text-center mx-auto"
+          onClick={(e) => {
+            e.stopPropagation();
+            openImageViewer({ src: actualSrc, alt, title: alt });
+          }}
+          title="Nhấp để mở & phóng to ảnh"
+        >
           <img
             src={actualSrc}
             alt={alt || 'Note image'}
-            className="max-w-full h-auto rounded-xl border border-zinc-700/70 shadow-lg object-contain max-h-80 mx-auto"
+            className="max-w-full h-auto rounded-xl border border-zinc-700/70 shadow-lg object-contain max-h-80 mx-auto transition-transform duration-200 group-hover:scale-[1.01] group-hover:border-purple-500/60"
             loading="lazy"
           />
+          <div className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/65 backdrop-blur-md border border-white/20 text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md flex items-center gap-1 text-[10px]">
+            <Maximize2 className="w-3 h-3 text-purple-300" />
+            <span>Phóng to</span>
+          </div>
           {alt && <span className="block text-center text-[11px] text-zinc-400 mt-1.5">{alt}</span>}
         </span>
       );

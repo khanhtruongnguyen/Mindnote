@@ -5,6 +5,7 @@ import { COLOR_SCHEMES } from '../constants/theme';
 import { UnifiedNoteEditor } from './UnifiedNoteEditor';
 import { ErrorBoundary } from './ErrorBoundary';
 import { AiService, getRotationModels, getNextRotationModel } from '../services/aiService';
+import { openImageViewer } from './ImageViewerModal';
 import {
   Trash2,
   Sparkles,
@@ -813,7 +814,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <img
                               src={imgSrc}
                               alt={`Ảnh ${idx + 1}`}
-                              className="w-10 h-10 object-cover rounded-lg border border-zinc-700 shrink-0 bg-black"
+                              onClick={() => openImageViewer({ src: imgSrc, alt: `Ảnh #${idx + 1} (${attId})`, title: `Ảnh #${idx + 1} (${attId})` })}
+                              title="Nhấp để mở & phóng to ảnh này"
+                              className="w-10 h-10 object-cover rounded-lg border border-zinc-700 shrink-0 bg-black cursor-zoom-in hover:border-purple-400 hover:scale-105 transition-all"
                             />
                             <div className="min-w-0">
                               <div className="text-[11px] font-bold text-zinc-200 flex items-center gap-1.5">
@@ -1179,7 +1182,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <img
                         src={tempVisionImage}
                         alt="Ảnh tạm"
-                        className="w-14 h-14 object-cover rounded-lg border border-zinc-700 shrink-0"
+                        onClick={() => openImageViewer({ src: tempVisionImage, alt: 'Ảnh tải lên', title: 'Ảnh tải lên cho AI' })}
+                        title="Nhấp để mở & phóng to ảnh này"
+                        className="w-14 h-14 object-cover rounded-lg border border-zinc-700 shrink-0 cursor-zoom-in hover:border-purple-400 hover:scale-105 transition-all"
                       />
                       <div className="flex-1 min-w-0 flex flex-wrap gap-1.5">
                         <button

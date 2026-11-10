@@ -40,6 +40,7 @@ import {
 } from 'lucide-react';
 import type { CustomNode, AppSettings } from '../types';
 import { AiService } from '../services/aiService';
+import { openImageViewer } from './ImageViewerModal';
 import {
   CODE_BOX_PRESETS,
   markdownToHtml,
@@ -849,6 +850,24 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
 
         window.open(rawHref, '_blank', 'noopener,noreferrer');
         return;
+      }
+
+      // 5. Clicked on Image in Editor -> Open Image Zoom Viewer
+      const imgEl = target.closest('img.mn-editor-img, img') as HTMLImageElement | null;
+      const imgWidget = target.closest('.mn-image-widget') as HTMLElement | null;
+      if (imgEl || imgWidget) {
+        const targetImg = imgEl || imgWidget?.querySelector('img');
+        if (targetImg && targetImg.src) {
+          const rawSrc = imgWidget?.getAttribute('data-raw-src') || targetImg.getAttribute('src') || '';
+          let displaySrc = targetImg.src;
+          if (rawSrc.startsWith('attachment:') && attachments) {
+            const attId = rawSrc.replace('attachment:', '');
+            if (attachments[attId]) displaySrc = attachments[attId];
+          }
+          const altText = imgWidget?.getAttribute('data-alt') || targetImg.alt || 'Hình ảnh';
+          openImageViewer({ src: displaySrc, alt: altText, title: altText });
+          return;
+        }
       }
 
       saveSelection();

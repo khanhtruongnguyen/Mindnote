@@ -28,6 +28,7 @@ import { MapContextModal } from './components/MapContextModal';
 import { ImportConfirmModal } from './components/ImportConfirmModal';
 import { GoogleDriveImportModal } from './components/GoogleDriveImportModal';
 import { FlashcardModal } from './components/FlashcardModal';
+import { ImageViewerModal } from './components/ImageViewerModal';
 import { useDeviceMode } from './hooks/useDeviceMode';
 import {
   syncMapToSupabase,
@@ -1494,6 +1495,9 @@ export function App() {
         onFocusNode={handleFocusNode}
         onUpdateSettings={handleSaveSettings}
       />
+
+      {/* Modal Phóng To & Xem Ảnh Tương Tác Đa Năng */}
+      <ImageViewerModal />
     </div>
   );
 }
