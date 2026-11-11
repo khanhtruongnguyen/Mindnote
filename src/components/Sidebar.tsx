@@ -3,6 +3,7 @@ import type { Edge } from '@xyflow/react';
 import type { CustomNode, NodeColor, NodeShape, AppSettings, SplitNodeResult } from '../types';
 import { COLOR_SCHEMES } from '../constants/theme';
 import { UnifiedNoteEditor } from './UnifiedNoteEditor';
+import { MarkdownRenderer } from './MarkdownRenderer';
 import { ErrorBoundary } from './ErrorBoundary';
 import { AiService, getRotationModels, getNextRotationModel } from '../services/aiService';
 import { openImageViewer } from './ImageViewerModal';
@@ -32,6 +33,10 @@ import {
   Image as ImageIcon,
   Shuffle,
   LayoutTemplate,
+  Pencil,
+  Eye,
+  Pin,
+  FileText,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -43,6 +48,7 @@ interface SidebarProps {
   mapName?: string;
   mapContext?: string;
   onOpenContextModal?: () => void;
+  onOpenFloatingCard?: (nodeId: string) => void;
   onAddBranchNodes?: (parentNode: CustomNode, branches: Array<{ label: string; content: string }>) => void;
   onSplitNodeToBranches?: (parentNode: CustomNode, splitResult: SplitNodeResult) => void;
   onOpenFlashcardModal?: () => void;
@@ -73,6 +79,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenContextModal,
   onSplitNodeToBranches,
   onOpenFlashcardModal,
+  onSelectNodeById,
+  onNavigate,
   attachments = {},
   attachmentCaptions = {},
   loadingCaptionIds = [],
@@ -84,7 +92,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteNode,
   onClose,
   onSaveAttachment,
+  onOpenFloatingCard,
 }) => {
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Mặc định luôn mở ở Chế độ đọc (chỉ có nội dung), ấn vào "cây bút" mới bắt đầu sửa!
+  useEffect(() => {
+    setIsEditing(false);
+  }, [selectedNode?.id]);
+
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showLinkModal, setShowLinkModal] = useState(false);
   const [linkModalTab, setLinkModalTab] = useState<'internal' | 'external'>('internal');
@@ -607,6 +623,42 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {/* Nút Chuyển Chế độ Đọc / Sửa (Cây bút ✏️): Mặc định chỉ xem nội dung, ấn vào cây bút mới sửa */}
+            {isEditing ? (
+              <button
+                type="button"
+                onClick={() => setIsEditing(false)}
+                title="Chuyển sang chế độ đọc (Xem nội dung)"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-all shadow-xs hover:scale-[1.02] cursor-pointer"
+              >
+                <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden sm:inline">Chế độ đọc</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setIsEditing(true)}
+                title="Bắt đầu chỉnh sửa nội dung (Cây bút ✏️)"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-purple-600/25 hover:bg-purple-600/35 text-purple-200 hover:text-white border border-purple-500/40 text-xs font-bold transition-all shadow-xs hover:scale-[1.02] cursor-pointer"
+              >
+                <Pencil className="w-3.5 h-3.5 text-purple-400" />
+                <span>Chỉnh sửa</span>
+              </button>
+            )}
+
+            {/* Nút Ghim ra màn hình thành thẻ nổi (Desktop: Xem nhiều thẻ cùng lúc) */}
+            {onOpenFloatingCard && !isMobile && (
+              <button
+                type="button"
+                onClick={() => onOpenFloatingCard(selectedNode.id)}
+                title="Ghim ô này thành thẻ nổi trên màn hình (Xem nhiều thẻ cùng lúc)"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-amber-300 border border-zinc-700 text-xs font-medium transition-colors cursor-pointer"
+              >
+                <Pin className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden sm:inline">Ghim thẻ</span>
+              </button>
+            )}
+
             {/* Nút Sao chép liên kết trực tiếp đến ô này (Deep Link) */}
             <button
               type="button"
@@ -1312,30 +1364,68 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
-        {/* BỘ SOẠN THẢO DUY NHẤT & HIỂN THỊ TRỰC TIẾP (UNIFIED SINGLE EDITOR) */}
+        {/* NỘI DUNG GHI CHÚ: MẶC ĐỊNH CHẾ ĐỘ ĐỌC (CHỈ HIỂN THỊ NỘI DUNG), ẤN CÂY BÚT MỚI SỬA */}
         <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-[#121217]">
-          <ErrorBoundary fallbackTitle="Không thể tải bộ soạn thảo ghi chú">
-            <UnifiedNoteEditor
-              key={selectedNode.id}
-              content={data.content || ''}
-              html={data.html}
-              onChange={(newContent, newHtml) => onUpdateNode(selectedNode.id, { content: newContent, html: newHtml })}
-              attachments={attachments}
-              onSaveAttachment={onSaveAttachment}
-              allNodes={allNodes}
-              currentNodeId={selectedNode.id}
-              nodeLabel={data.label}
-              mapContext={mapContext}
-              settings={settings}
-              onToggleAiWriter={() => setShowAiWriter(!showAiWriter)}
-              showAiWriter={showAiWriter}
-              onReorganizeLayout={() => handleRunAiWriter('reorganize_layout')}
-              isReorganizingLayout={aiWriterLoading}
-              isFullscreen={isFullscreen}
-              onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
-              isMobile={isMobile}
-            />
-          </ErrorBoundary>
+          {isEditing ? (
+            <ErrorBoundary fallbackTitle="Không thể tải bộ soạn thảo ghi chú">
+              <UnifiedNoteEditor
+                key={selectedNode.id}
+                content={data.content || ''}
+                html={data.html}
+                onChange={(newContent, newHtml) => onUpdateNode(selectedNode.id, { content: newContent, html: newHtml })}
+                attachments={attachments}
+                onSaveAttachment={onSaveAttachment}
+                allNodes={allNodes}
+                currentNodeId={selectedNode.id}
+                nodeLabel={data.label}
+                mapContext={mapContext}
+                settings={settings}
+                onToggleAiWriter={() => setShowAiWriter(!showAiWriter)}
+                showAiWriter={showAiWriter}
+                onReorganizeLayout={() => handleRunAiWriter('reorganize_layout')}
+                isReorganizingLayout={aiWriterLoading}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
+                isMobile={isMobile}
+              />
+            </ErrorBoundary>
+          ) : (
+            <div
+              className="flex-1 overflow-y-auto p-4 sm:p-6 bg-[#121217] text-zinc-200 select-text cursor-default space-y-4"
+              onDoubleClick={() => setIsEditing(true)}
+              title="Nhấp đúp chuột để bắt đầu chỉnh sửa (hoặc bấm nút Cây bút)"
+            >
+              {data.content && data.content.trim() ? (
+                <div className="prose prose-invert max-w-none text-sm leading-relaxed">
+                  <MarkdownRenderer
+                    content={data.content}
+                    attachments={attachments}
+                    attachmentCaptions={attachmentCaptions}
+                    onNavigate={onNavigate}
+                    onNodeClick={onSelectNodeById}
+                  />
+                </div>
+              ) : (
+                <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center p-6 space-y-3.5 text-zinc-500">
+                  <div className="w-12 h-12 rounded-2xl bg-[#1c1c28] border border-zinc-800 flex items-center justify-center text-zinc-400 shadow-inner">
+                    <FileText className="w-6 h-6 text-zinc-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-zinc-300">Chưa có nội dung ghi chú</p>
+                    <p className="text-xs text-zinc-500">Bấm vào cây bút hoặc nhấp đúp để bắt đầu viết.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditing(true)}
+                    className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold shadow-md shadow-purple-600/30 transition-all hover:scale-105 cursor-pointer"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    <span>Bắt đầu viết</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </aside>
 

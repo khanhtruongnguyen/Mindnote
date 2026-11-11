@@ -251,9 +251,15 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
     [nodes, setEdges, onUpdateMap, handleDeleteEdge]
   );
 
-  // Click on a node -> select it and open sidebar
+  // Click on a node -> select it and open sidebar (Hoặc giữ phím Shift + Click để mở thẻ nổi đa nhiệm)
   const handleNodeClick: NodeMouseHandler = useCallback(
-    (_event, node) => {
+    (event, node) => {
+      if (event.shiftKey) {
+        window.dispatchEvent(
+          new CustomEvent('mindnote:open-floating-card', { detail: { nodeId: node.id } })
+        );
+        return;
+      }
       onSelectNode(node as CustomNode);
     },
     [onSelectNode]

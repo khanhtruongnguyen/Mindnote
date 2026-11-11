@@ -3,9 +3,9 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import type { MindMapNodeData } from '../../types';
 import { COLOR_SCHEMES } from '../../constants/theme';
 import { MarkdownRenderer } from '../MarkdownRenderer';
-import { FileText, Sigma, Image as ImageIcon, GripHorizontal } from 'lucide-react';
+import { FileText, Sigma, Image as ImageIcon, GripHorizontal, Pin } from 'lucide-react';
 
-export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
+export const MindMapNode: React.FC<NodeProps> = memo(({ id, data, selected }) => {
   const nodeData = data as MindMapNodeData;
   const colorScheme = COLOR_SCHEMES[nodeData.color] || COLOR_SCHEMES.purple;
   const shape = nodeData.shape || 'pill';
@@ -114,6 +114,19 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
             {hasImage && <ImageIcon className="w-3 h-3 text-emerald-400" />}
             {!hasFormula && !hasImage && <FileText className="w-3 h-3 text-zinc-400" />}
           </div>
+
+          {/* Nút Ghim thẻ nổi ra màn hình */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              window.dispatchEvent(new CustomEvent('mindnote:open-floating-card', { detail: { nodeId: id } }));
+            }}
+            title="Ghim ô thành thẻ nổi trên màn hình (Shift + Click)"
+            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-zinc-800/90 hover:bg-amber-600/80 text-zinc-300 hover:text-white border border-zinc-700/80 shadow-md cursor-pointer shrink-0"
+          >
+            <Pin className="w-2.5 h-2.5" />
+          </button>
         </div>
       )}
 
@@ -133,6 +146,17 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
             <span className="text-xs font-semibold text-zinc-100 truncate flex-1">
               {nodeData.label || 'Chưa đặt tên'}
             </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                window.dispatchEvent(new CustomEvent('mindnote:open-floating-card', { detail: { nodeId: id } }));
+              }}
+              title="Ghim ô thành thẻ nổi trên màn hình (Shift + Click)"
+              className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full bg-zinc-800/90 hover:bg-amber-600/80 text-zinc-300 hover:text-white border border-zinc-700/80 shadow-md cursor-pointer shrink-0"
+            >
+              <Pin className="w-2.5 h-2.5" />
+            </button>
           </div>
           {nodeData.content && (
             <p className="text-[11px] text-zinc-400 line-clamp-2 leading-relaxed">

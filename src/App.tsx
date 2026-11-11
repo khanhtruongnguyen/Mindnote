@@ -8,6 +8,7 @@ import type {
   ImportDataResult,
   FlashcardItem,
   SplitNodeResult,
+  FloatingCardState,
 } from './types';
 import { StorageService, DEFAULT_STARTER_MAP } from './services/storage';
 import { AiService } from './services/aiService';
@@ -30,6 +31,7 @@ import { GoogleDriveImportModal } from './components/GoogleDriveImportModal';
 import { FlashcardModal } from './components/FlashcardModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
 import { MoveNodesModal } from './components/MoveNodesModal';
+import { FloatingCardContainer } from './components/FloatingCardContainer';
 import { useDeviceMode } from './hooks/useDeviceMode';
 import {
   syncMapToSupabase,
@@ -83,6 +85,10 @@ export function App() {
   const [mapUndoStack, setMapUndoStack] = useState<
     Record<string, Array<{ nodes: CustomNode[]; edges: Edge[] }>>
   >({});
+
+  // Trạng thái các Thẻ ghi chú nổi đa nhiệm trên màn hình (Desktop)
+  const [floatingCards, setFloatingCards] = useState<FloatingCardState[]>([]);
+  const [maxFloatingZIndex, setMaxFloatingZIndex] = useState(130);
 
   // Khởi tạo IndexedDB và nạp dữ liệu bản đồ
   useEffect(() => {
@@ -548,6 +554,115 @@ export function App() {
     setFocusNodeId(nodeId);
     setTimeout(() => setFocusNodeId(null), 100);
   }, []);
+
+  // Mở thẻ ghi chú nổi trên màn hình (Desktop)
+  const handleOpenFloatingCard = useCallback(
+    (nodeId: string) => {
+      setFloatingCards((prev) => {
+        const existing = prev.find((c) => c.id === nodeId);
+        if (existing) {
+          return prev.map((c) =>
+            c.id === nodeId
+              ? { ...c, zIndex: maxFloatingZIndex + 1, isMinimized: false }
+              : c
+          );
+        }
+        const offset = prev.length % 6;
+        const newCard: FloatingCardState = {
+          id: nodeId,
+          x: 80 + offset * 45,
+          y: 90 + offset * 35,
+          width: 380,
+          height: 440,
+          isMinimized: false,
+          isEditing: false, // Mặc định chỉ có nội dung, ấn vào cây bút mới sửa
+          zIndex: maxFloatingZIndex + 1,
+        };
+        return [...prev, newCard];
+      });
+      setMaxFloatingZIndex((z) => z + 1);
+    },
+    [maxFloatingZIndex]
+  );
+
+  const handleCloseFloatingCard = useCallback((nodeId: string) => {
+    setFloatingCards((prev) => prev.filter((c) => c.id !== nodeId));
+  }, []);
+
+  const handleUpdateFloatingCard = useCallback(
+    (nodeId: string, updates: Partial<FloatingCardState>) => {
+      setFloatingCards((prev) =>
+        prev.map((c) => (c.id === nodeId ? { ...c, ...updates } : c))
+      );
+    },
+    []
+  );
+
+  const handleBringCardToFront = useCallback((nodeId: string) => {
+    setMaxFloatingZIndex((z) => {
+      const nextZ = z + 1;
+      setFloatingCards((prev) =>
+        prev.map((c) => (c.id === nodeId ? { ...c, zIndex: nextZ } : c))
+      );
+      return nextZ;
+    });
+  }, []);
+
+  const handleCloseAllFloatingCards = useCallback(() => {
+    setFloatingCards([]);
+  }, []);
+
+  const handleTileFloatingCards = useCallback(() => {
+    const screenW = window.innerWidth;
+    const screenH = window.innerHeight;
+    const count = floatingCards.length;
+    if (count === 0) return;
+
+    const cols = count === 1 ? 1 : count <= 4 ? 2 : 3;
+    const rows = Math.ceil(count / cols);
+    const cardW = Math.max(280, Math.floor((screenW - (cols + 1) * 20) / cols));
+    const cardH = Math.max(220, Math.floor((screenH - (rows + 1) * 25 - 60) / rows));
+
+    setFloatingCards((prev) =>
+      prev.map((c, idx) => {
+        const col = idx % cols;
+        const row = Math.floor(idx / cols);
+        return {
+          ...c,
+          x: 20 + col * (cardW + 15),
+          y: 75 + row * (cardH + 20),
+          width: cardW,
+          height: cardH,
+          isMinimized: false,
+        };
+      })
+    );
+  }, [floatingCards.length]);
+
+  const handleCascadeFloatingCards = useCallback(() => {
+    setFloatingCards((prev) =>
+      prev.map((c, idx) => ({
+        ...c,
+        x: 60 + (idx % 8) * 40,
+        y: 80 + (idx % 8) * 35,
+        width: 380,
+        height: 440,
+        isMinimized: false,
+      }))
+    );
+  }, []);
+
+  // Lắng nghe sự kiện mở thẻ nổi từ bất kỳ đâu (MindMapNode, Sidebar, Canvas)
+  useEffect(() => {
+    const handleOpenCardEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<{ nodeId: string }>;
+      if (customEvent.detail?.nodeId) {
+        handleOpenFloatingCard(customEvent.detail.nodeId);
+      }
+    };
+    window.addEventListener('mindnote:open-floating-card', handleOpenCardEvent);
+    return () => window.removeEventListener('mindnote:open-floating-card', handleOpenCardEvent);
+  }, [handleOpenFloatingCard]);
 
   // Create node directly from AI chat response
   const handleAddNodeFromAi = useCallback(
@@ -1635,6 +1750,7 @@ export function App() {
           onDeleteNode={handleDeleteNode}
           onClose={() => setSelectedNodeId(null)}
           onSaveAttachment={handleSaveAttachment}
+          onOpenFloatingCard={handleOpenFloatingCard}
         />
       </ErrorBoundary>
 
@@ -1795,6 +1911,25 @@ export function App() {
         currentMapId={activeMap.id}
         onConfirm={handleExecuteTransfer}
       />
+
+      {/* Khung chứa các Thẻ ghi chú nổi đa nhiệm trên màn hình (Desktop: Xem nhiều thẻ cùng lúc) */}
+      {!isMobile && (
+        <FloatingCardContainer
+          cards={floatingCards}
+          nodes={activeMap.nodes}
+          attachments={activeMap.attachments || {}}
+          attachmentCaptions={activeMap.attachmentCaptions || {}}
+          onUpdateNode={handleUpdateNode}
+          onCloseCard={handleCloseFloatingCard}
+          onUpdateCard={handleUpdateFloatingCard}
+          onBringToFront={handleBringCardToFront}
+          onCloseAllCards={handleCloseAllFloatingCards}
+          onTileCards={handleTileFloatingCards}
+          onCascadeCards={handleCascadeFloatingCards}
+          onNavigate={handleNavigateInternal}
+          onSelectNodeById={handleFocusNode}
+        />
+      )}
 
       {/* Modal Phóng To & Xem Ảnh Tương Tác Đa Năng */}
       <ImageViewerModal />

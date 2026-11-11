@@ -49,6 +49,17 @@ export interface SplitNodeResult {
   summary?: string;
 }
 
+export interface FloatingCardState {
+  id: string; // matches node.id
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isMinimized?: boolean;
+  isEditing?: boolean;
+  zIndex: number;
+}
+
 export interface MapData {
   id: string;
   name: string;
