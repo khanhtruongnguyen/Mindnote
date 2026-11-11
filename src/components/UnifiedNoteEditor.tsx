@@ -180,6 +180,19 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   const [customBoxCss, setCustomBoxCss] = useState('');
   const [customBoxTitle, setCustomBoxTitle] = useState('');
 
+  // Active Rich Text Format state (Bold, Italic, Lists, Block tag) for real-time Toolbar feedback
+  const [formatState, setFormatState] = useState({
+    bold: false,
+    italic: false,
+    underline: false,
+    strikeThrough: false,
+    inUl: false,
+    inOl: false,
+    inTask: false,
+    inBlockquote: false,
+    currentBlock: 'P' as 'P' | 'H1' | 'H2' | 'H3' | 'H4' | 'BLOCKQUOTE',
+  });
+
   // Emit DOM changes to Markdown and HTML
   const emitChanges = useCallback(() => {
     const el = editorRef.current;
@@ -218,13 +231,59 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
     }
   }, [content, html, attachments, sourceMode]);
 
-  // Save current selection range inside editor
+  // Save current selection range inside editor & detect active formatting
   const saveSelection = useCallback(() => {
     const sel = window.getSelection();
     if (!sel || sel.rangeCount === 0) return;
     const range = sel.getRangeAt(0);
     if (editorRef.current && editorRef.current.contains(range.commonAncestorContainer)) {
       savedRangeRef.current = range.cloneRange();
+
+      // Detect active rich text formats
+      try {
+        const isBold = document.queryCommandState('bold');
+        const isItalic = document.queryCommandState('italic');
+        const isUnderline = document.queryCommandState('underline');
+        const isStrike = document.queryCommandState('strikeThrough');
+
+        const targetNode =
+          range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+            ? (range.commonAncestorContainer as HTMLElement)
+            : range.commonAncestorContainer.parentElement;
+
+        const inTask = !!targetNode?.closest('li.mn-task-item');
+        const ul = targetNode?.closest('ul');
+        const inUl = !!ul && !inTask;
+        const inOl = !!targetNode?.closest('ol');
+        const inBlockquote = !!targetNode?.closest('blockquote');
+
+        let currentBlock: 'P' | 'H1' | 'H2' | 'H3' | 'H4' | 'BLOCKQUOTE' = 'P';
+        if (inBlockquote) {
+          currentBlock = 'BLOCKQUOTE';
+        } else if (targetNode?.closest('h1')) {
+          currentBlock = 'H1';
+        } else if (targetNode?.closest('h2')) {
+          currentBlock = 'H2';
+        } else if (targetNode?.closest('h3')) {
+          currentBlock = 'H3';
+        } else if (targetNode?.closest('h4')) {
+          currentBlock = 'H4';
+        }
+
+        setFormatState({
+          bold: isBold,
+          italic: isItalic,
+          underline: isUnderline,
+          strikeThrough: isStrike,
+          inUl,
+          inOl,
+          inTask,
+          inBlockquote,
+          currentBlock,
+        });
+      } catch {
+        // Query command state could safely fail in some virtual selections
+      }
 
       // Detect selected text for Inline AI
       const selectedStr = sel.isCollapsed ? '' : sel.toString().trim();
@@ -249,6 +308,21 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       setActiveCellEl(cell);
     }
   }, [inlineAiLoading, inlineAiResult]);
+
+  // Synchronize format state on selection changes across document
+  useEffect(() => {
+    const handleDocSelectionChange = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0 || !editorRef.current) return;
+      if (editorRef.current.contains(sel.anchorNode)) {
+        saveSelection();
+      }
+    };
+    document.addEventListener('selectionchange', handleDocSelectionChange);
+    return () => {
+      document.removeEventListener('selectionchange', handleDocSelectionChange);
+    };
+  }, [saveSelection]);
 
   const restoreSelection = useCallback(() => {
     const el = editorRef.current;
@@ -1098,8 +1172,13 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             sel.removeAllRanges();
             sel.addRange(range);
             document.execCommand('delete', false);
+            if (blockEl && blockEl instanceof HTMLElement && blockEl.hasAttribute('data-indent')) {
+              blockEl.removeAttribute('data-indent');
+              blockEl.style.paddingLeft = '';
+            }
             cmd();
             emitChanges();
+            saveSelection();
           };
 
           if (isAtBlockStart) {
@@ -1181,7 +1260,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
         }
       }
     },
-    [execFormat, handleOpenNewMath, emitChanges]
+    [execFormat, handleOpenNewMath, handleOpenNewLinkModal, handleIndent, handleOutdent, saveSelection, emitChanges]
   );
 
   // Smart Paste: Handles pasted images AND auto-formats pasted Markdown/LaTeX from AI/Notes
@@ -1270,10 +1349,22 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
                 setBoxMenuOpen(false);
               }}
               title="Kiểu chữ & Tiêu đề"
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[#20202d] hover:bg-[#2a2a3c] text-xs font-semibold text-zinc-200 border border-zinc-700/60 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-[#20202d] hover:bg-[#2a2a3c] text-xs font-semibold text-zinc-200 border border-zinc-700/60 transition-colors cursor-pointer"
             >
               <Type className="w-3.5 h-3.5 text-purple-400" />
-              <span>Kiểu chữ</span>
+              <span className="min-w-[56px] text-left">
+                {formatState.currentBlock === 'H1'
+                  ? 'Tiêu đề 1'
+                  : formatState.currentBlock === 'H2'
+                  ? 'Tiêu đề 2'
+                  : formatState.currentBlock === 'H3'
+                  ? 'Tiêu đề 3'
+                  : formatState.currentBlock === 'H4'
+                  ? 'Tiêu đề 4'
+                  : formatState.currentBlock === 'BLOCKQUOTE'
+                  ? 'Trích dẫn'
+                  : 'Văn bản'}
+              </span>
               <ChevronDown className="w-3 h-3 text-zinc-400" />
             </button>
 
@@ -1283,7 +1374,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleApplyBlock('P')}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-zinc-800 text-zinc-200 flex items-center justify-between cursor-pointer"
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${
+                    formatState.currentBlock === 'P'
+                      ? 'bg-purple-600/30 text-purple-200 font-bold'
+                      : 'hover:bg-zinc-800 text-zinc-200'
+                  }`}
                 >
                   <span>Văn bản thường</span>
                   <span className="text-[10px] text-zinc-500">Chuẩn</span>
@@ -1292,7 +1387,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleApplyBlock('H1')}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-purple-600/25 text-white font-extrabold text-sm flex items-center justify-between cursor-pointer"
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${
+                    formatState.currentBlock === 'H1'
+                      ? 'bg-purple-600/30 text-purple-200 font-bold text-sm'
+                      : 'hover:bg-purple-600/25 text-white font-extrabold text-sm'
+                  }`}
                 >
                   <span>Tiêu đề lớn 1</span>
                   <span className="text-[10px] text-zinc-500 font-mono">H1</span>
@@ -1301,7 +1400,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleApplyBlock('H2')}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-purple-600/25 text-zinc-100 font-bold text-xs flex items-center justify-between cursor-pointer"
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${
+                    formatState.currentBlock === 'H2'
+                      ? 'bg-purple-600/30 text-purple-200 font-bold'
+                      : 'hover:bg-purple-600/25 text-zinc-100 font-bold text-xs'
+                  }`}
                 >
                   <span>Tiêu đề vừa 2</span>
                   <span className="text-[10px] text-zinc-500 font-mono">H2</span>
@@ -1310,7 +1413,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleApplyBlock('H3')}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-purple-600/25 text-purple-300 font-semibold text-xs flex items-center justify-between cursor-pointer"
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg flex items-center justify-between cursor-pointer ${
+                    formatState.currentBlock === 'H3'
+                      ? 'bg-purple-600/30 text-purple-200 font-bold'
+                      : 'hover:bg-purple-600/25 text-purple-300 font-semibold text-xs'
+                  }`}
                 >
                   <span>Tiêu đề mục 3</span>
                   <span className="text-[10px] text-zinc-500 font-mono">H3</span>
@@ -1319,7 +1426,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => handleApplyBlock('BLOCKQUOTE')}
-                  className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-purple-600/25 text-zinc-300 border-t border-zinc-800 mt-1 pt-1.5 flex items-center gap-2 cursor-pointer"
+                  className={`w-full text-left px-2.5 py-1.5 rounded-lg border-t border-zinc-800 mt-1 pt-1.5 flex items-center gap-2 cursor-pointer ${
+                    formatState.currentBlock === 'BLOCKQUOTE'
+                      ? 'bg-purple-600/30 text-purple-200 font-bold'
+                      : 'hover:bg-purple-600/25 text-zinc-300'
+                  }`}
                 >
                   <Quote className="w-3.5 h-3.5 text-purple-400" />
                   <span>Khung trích dẫn</span>
@@ -1336,7 +1447,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => execFormat('bold')}
             title="In đậm (Ctrl+B)"
-            className="p-1.5 rounded-lg hover:bg-[#252535] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              formatState.bold
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-xs'
+                : 'text-zinc-300 hover:text-white hover:bg-[#252535]'
+            }`}
           >
             <Bold className="w-4 h-4" />
           </button>
@@ -1346,7 +1461,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => execFormat('italic')}
             title="In nghiêng (Ctrl+I)"
-            className="p-1.5 rounded-lg hover:bg-[#252535] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              formatState.italic
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-xs'
+                : 'text-zinc-300 hover:text-white hover:bg-[#252535]'
+            }`}
           >
             <Italic className="w-4 h-4" />
           </button>
@@ -1356,7 +1475,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => execFormat('underline')}
             title="Gạch chân (Ctrl+U)"
-            className="p-1.5 rounded-lg hover:bg-[#252535] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              formatState.underline
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-xs'
+                : 'text-zinc-300 hover:text-white hover:bg-[#252535]'
+            }`}
           >
             <Underline className="w-4 h-4" />
           </button>
@@ -1366,7 +1489,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => execFormat('strikeThrough')}
             title="Gạch ngang chữ"
-            className="p-1.5 rounded-lg hover:bg-[#252535] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              formatState.strikeThrough
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-xs'
+                : 'text-zinc-300 hover:text-white hover:bg-[#252535]'
+            }`}
           >
             <Strikethrough className="w-4 h-4" />
           </button>
@@ -1446,7 +1573,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => execFormat('insertUnorderedList')}
             title="Danh sách chấm đầu dòng"
-            className="p-1.5 rounded-lg hover:bg-[#252535] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              formatState.inUl
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-xs'
+                : 'text-zinc-300 hover:text-white hover:bg-[#252535]'
+            }`}
           >
             <List className="w-4 h-4" />
           </button>
@@ -1456,7 +1587,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => execFormat('insertOrderedList')}
             title="Danh sách đánh số (1, 2, 3)"
-            className="p-1.5 rounded-lg hover:bg-[#252535] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              formatState.inOl
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-xs'
+                : 'text-zinc-300 hover:text-white hover:bg-[#252535]'
+            }`}
           >
             <ListOrdered className="w-4 h-4" />
           </button>
@@ -1466,7 +1601,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             onMouseDown={(e) => e.preventDefault()}
             onClick={handleInsertTaskList}
             title="Danh sách việc cần làm (Checkbox)"
-            className="p-1.5 rounded-lg hover:bg-[#252535] text-zinc-300 hover:text-white transition-colors cursor-pointer"
+            className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+              formatState.inTask
+                ? 'bg-purple-600/30 text-purple-200 border border-purple-500/40 shadow-xs'
+                : 'text-zinc-300 hover:text-white hover:bg-[#252535]'
+            }`}
           >
             <CheckSquare className="w-4 h-4" />
           </button>
@@ -1982,7 +2121,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
               onClick={handleEditorClick}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
-              data-placeholder="Bắt đầu viết ghi chú tại đây... (Gõ # để tạo tiêu đề, - để tạo danh sách, -> để tạo mũi tên →, hoặc bấm nút Công thức / Ô màu ở trên)"
+              data-placeholder="Viết ghi chú... (Gõ / hoặc # để định dạng nhanh)"
               className={`mn-doc-surface min-h-[65vh] pb-24 ${
                 isFullscreen ? 'mn-doc-fullscreen' : ''
               }`}

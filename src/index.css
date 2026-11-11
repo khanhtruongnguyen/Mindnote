@@ -143,7 +143,12 @@
   word-break: break-word;
   user-select: text;
   -webkit-user-select: text;
-  caret-color: #a855f7;
+  caret-color: #c084fc;
+}
+
+.mn-doc-surface ::selection {
+  background: rgba(168, 85, 247, 0.35);
+  color: #ffffff;
 }
 
 .mn-doc-surface.mn-doc-fullscreen {
@@ -154,10 +159,11 @@
 .mn-doc-surface:empty::before,
 .mn-doc-surface[data-empty="true"]::before {
   content: attr(data-placeholder);
-  color: #52525b;
+  color: #71717a;
   pointer-events: none;
   display: block;
-  font-style: italic;
+  font-style: normal;
+  opacity: 0.65;
 }
 
 .mn-doc-surface h1 {
