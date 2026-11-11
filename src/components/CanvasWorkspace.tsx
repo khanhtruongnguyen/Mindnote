@@ -9,6 +9,7 @@ import {
   addEdge,
   useReactFlow,
   BackgroundVariant,
+  SelectionMode,
   type Connection,
   type Edge,
   type NodeMouseHandler,
@@ -19,7 +20,7 @@ import type { CustomNode, MapData, MindMapNodeData } from '../types';
 import { MindMapNode } from './nodes/MindMapNode';
 import { CustomEdge } from './edges/CustomEdge';
 import { COLOR_SCHEMES } from '../constants/theme';
-import { MapPin, Sparkles, Plus } from 'lucide-react';
+import { MapPin, Sparkles, Plus, BoxSelect, Scissors, ArrowRight } from 'lucide-react';
 
 interface CanvasWorkspaceProps {
   mapData: MapData;
@@ -31,6 +32,9 @@ interface CanvasWorkspaceProps {
   onNavigate?: (mapId?: string, noteId?: string) => void;
   onDoubleClickedCanvas: (position: { x: number; y: number }) => void;
   onAddNewNodeCenter: () => void;
+  isMoveMode?: boolean;
+  onExitMoveMode?: () => void;
+  onOpenMoveModal?: (selectedNodes: CustomNode[], selectedEdges: Edge[]) => void;
 }
 
 const EMPTY_ATTACHMENTS: Record<string, string> = {};
@@ -45,12 +49,41 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
   onNavigate,
   onDoubleClickedCanvas,
   onAddNewNodeCenter,
+  isMoveMode = false,
+  onExitMoveMode,
+  onOpenMoveModal,
 }) => {
   const { screenToFlowPosition } = useReactFlow();
   const [showMiniMap, setShowMiniMap] = useState(false); // Hide by default on mobile, show via toggle
+  const [marqueeNodes, setMarqueeNodes] = useState<CustomNode[]>([]);
+  const [marqueeEdges, setMarqueeEdges] = useState<Edge[]>([]);
 
   const nodeTypes = useMemo(() => ({ mindmap: MindMapNode }), []);
   const edgeTypes = useMemo(() => ({ custom: CustomEdge }), []);
+
+  // Lắng nghe sự kiện chọn vùng (Marquee / Box selection) khi bật chế độ Di chuyển
+  const handleSelectionChange = useCallback(
+    ({ nodes: selNodes }: { nodes: unknown[]; edges: Edge[] }) => {
+      if (isMoveMode) {
+        const cNodes = selNodes as CustomNode[];
+        setMarqueeNodes(cNodes);
+        const nodeIds = new Set(cNodes.map((n) => n.id));
+        const internalEdges = (mapData.edges || []).filter(
+          (e) => nodeIds.has(e.source) && nodeIds.has(e.target)
+        );
+        setMarqueeEdges(internalEdges);
+      }
+    },
+    [isMoveMode, mapData.edges]
+  );
+
+  // Tự động dọn dẹp vùng chọn khi thoát chế độ di chuyển
+  React.useEffect(() => {
+    if (!isMoveMode) {
+      setMarqueeNodes([]);
+      setMarqueeEdges([]);
+    }
+  }, [isMoveMode]);
 
   // Delete an edge directly (called by CustomEdge delete button)
   const handleDeleteEdge = useCallback(
@@ -76,6 +109,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
   // Format nodes with selected flag, zIndex elevation, attachments, and internal navigation
   const formattedNodes = useMemo(() => {
     const currentAttachments = mapData.attachments || EMPTY_ATTACHMENTS;
+    const currentCaptions = mapData.attachmentCaptions || EMPTY_ATTACHMENTS;
     return mapData.nodes.map((node) => ({
       ...node,
       selected: node.id === selectedNodeId,
@@ -83,6 +117,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
       data: {
         ...node.data,
         attachments: currentAttachments,
+        attachmentCaptions: currentCaptions,
         onNavigate,
         onNodeClick: (targetId: string) => {
           const lower = targetId.toLowerCase().trim();
@@ -94,7 +129,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         },
       },
     }));
-  }, [mapData.nodes, selectedNodeId, mapData.attachments, onNavigate, onSelectNode]);
+  }, [mapData.nodes, selectedNodeId, mapData.attachments, mapData.attachmentCaptions, onNavigate, onSelectNode]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(formattedNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(formattedEdges);
@@ -102,6 +137,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
   // Sync internal state with props when mapData changes
   React.useEffect(() => {
     const currentAttachments = mapData.attachments || EMPTY_ATTACHMENTS;
+    const currentCaptions = mapData.attachmentCaptions || EMPTY_ATTACHMENTS;
     setNodes(
       mapData.nodes.map((node) => ({
         ...node,
@@ -110,6 +146,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         data: {
           ...node.data,
           attachments: currentAttachments,
+          attachmentCaptions: currentCaptions,
           onNavigate,
           onNodeClick: (targetId: string) => {
             const lower = targetId.toLowerCase().trim();
@@ -122,7 +159,7 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         },
       }))
     );
-  }, [mapData.id, mapData.nodes, selectedNodeId, mapData.attachments, onNavigate, onSelectNode, setNodes]);
+  }, [mapData.id, mapData.nodes, selectedNodeId, mapData.attachments, mapData.attachmentCaptions, onNavigate, onSelectNode, setNodes]);
 
   React.useEffect(() => {
     setEdges(
@@ -282,6 +319,10 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
         }}
         onlyRenderVisibleElements={true}
         proOptions={{ hideAttribution: true }}
+        selectionOnDrag={isMoveMode}
+        panOnDrag={isMoveMode ? [1, 2] : true}
+        selectionMode={SelectionMode.Partial}
+        onSelectionChange={handleSelectionChange}
       >
         {/* Obsidian Dot Grid */}
         <Background
@@ -346,6 +387,64 @@ export const CanvasWorkspace: React.FC<CanvasWorkspaceProps> = ({
             <Plus className="w-5 h-5 stroke-[2.5]" />
             <span>Thêm ô mới</span>
           </button>
+        </div>
+      )}
+
+      {/* Chế độ Di chuyển: Thanh thông báo hướng dẫn ở phía trên */}
+      {isMoveMode && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-40 bg-[#161622]/95 backdrop-blur-xl border border-amber-500/60 shadow-2xl rounded-2xl px-4 py-2 flex items-center gap-3 text-xs text-zinc-200 animate-in fade-in slide-in-from-top-2 duration-150">
+          <div className="flex items-center gap-2">
+            <BoxSelect className="w-4 h-4 text-amber-400 animate-pulse shrink-0" />
+            <span>
+              <strong>Chế độ Di chuyển:</strong> Kéo chuột trái trên bảng để khoanh chọn các ô cần chuyển.
+            </span>
+          </div>
+          {onExitMoveMode && (
+            <button
+              type="button"
+              onClick={onExitMoveMode}
+              className="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold cursor-pointer shrink-0 transition-colors"
+            >
+              Thoát
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Chế độ Di chuyển: Thanh công cụ nổi bên dưới khi đã khoanh chọn ít nhất 1 ô */}
+      {isMoveMode && marqueeNodes.length > 0 && (
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[#181827]/95 backdrop-blur-xl border border-amber-500/70 shadow-2xl rounded-2xl px-5 py-3 flex items-center gap-4 text-xs text-white animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+            <span>
+              Đã khoanh chọn <strong>{marqueeNodes.length} ô</strong> ({marqueeEdges.length} liên kết)
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setMarqueeNodes([]);
+                setMarqueeEdges([]);
+              }}
+              className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold cursor-pointer transition-colors"
+            >
+              Khoanh lại
+            </button>
+
+            {onOpenMoveModal && (
+              <button
+                type="button"
+                onClick={() => onOpenMoveModal(marqueeNodes, marqueeEdges)}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold shadow-lg shadow-amber-500/30 cursor-pointer transition-all hover:scale-105"
+              >
+                <Scissors className="w-3.5 h-3.5" />
+                <span>Chuyển sang Map khác</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
       )}
 

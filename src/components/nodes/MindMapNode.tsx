@@ -180,6 +180,7 @@ export const MindMapNode: React.FC<NodeProps> = memo(({ data, selected }) => {
               <MarkdownRenderer
                 content={nodeData.content}
                 attachments={nodeData.attachments as Record<string, string>}
+                attachmentCaptions={nodeData.attachmentCaptions as Record<string, string>}
                 onNavigate={nodeData.onNavigate as any}
                 onNodeClick={nodeData.onNodeClick as any}
               />

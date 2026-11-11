@@ -1854,6 +1854,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
               }}
               onKeyUp={saveSelection}
               onMouseUp={saveSelection}
+              onBlur={emitChanges}
               onClick={handleEditorClick}
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}

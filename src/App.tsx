@@ -29,6 +29,7 @@ import { ImportConfirmModal } from './components/ImportConfirmModal';
 import { GoogleDriveImportModal } from './components/GoogleDriveImportModal';
 import { FlashcardModal } from './components/FlashcardModal';
 import { ImageViewerModal } from './components/ImageViewerModal';
+import { MoveNodesModal } from './components/MoveNodesModal';
 import { useDeviceMode } from './hooks/useDeviceMode';
 import {
   syncMapToSupabase,
@@ -68,6 +69,12 @@ export function App() {
   const [isGoogleDriveModalOpen, setIsGoogleDriveModalOpen] = useState(false);
   const [isFlashcardModalOpen, setIsFlashcardModalOpen] = useState(false);
   const [pendingImportResult, setPendingImportResult] = useState<ImportDataResult | null>(null);
+
+  // Trạng thái Chế độ Di chuyển / Sao chép vùng sang Map khác
+  const [isMoveMode, setIsMoveMode] = useState(false);
+  const [isMoveModalOpen, setIsMoveModalOpen] = useState(false);
+  const [moveSelectedNodes, setMoveSelectedNodes] = useState<CustomNode[]>([]);
+  const [moveSelectedEdges, setMoveSelectedEdges] = useState<Edge[]>([]);
 
   // Trạng thái đang sinh mô tả ảnh ẩn cho AI
   const [loadingCaptionIds, setLoadingCaptionIds] = useState<string[]>([]);
@@ -1080,6 +1087,161 @@ export function App() {
     }
   };
 
+  // Mở modal xác nhận chuyển ô sau khi khoanh vùng
+  const handleOpenMoveModal = useCallback((nodes: CustomNode[], edges: Edge[]) => {
+    setMoveSelectedNodes(nodes);
+    setMoveSelectedEdges(edges);
+    setIsMoveModalOpen(true);
+  }, []);
+
+  // Thực thi di chuyển (Cắt) hoặc nhân bản (Sao chép) các ô sang Map đích
+  const handleExecuteTransfer = useCallback(
+    async (targetMapId: string, action: 'move' | 'copy') => {
+      const sourceMap = activeMap;
+      const targetMap = maps.find((m) => m.id === targetMapId);
+      if (!targetMap) {
+        alert('Không tìm thấy bản đồ đích!');
+        return;
+      }
+
+      const selectedNodeIds = new Set(moveSelectedNodes.map((n) => n.id));
+      if (selectedNodeIds.size === 0) return;
+
+      // 1. Sao chép sâu các node và lọc các edge (chỉ giữ edge có cả 2 đầu trong vùng chọn)
+      const nodesToTransfer: CustomNode[] = JSON.parse(JSON.stringify(moveSelectedNodes));
+      const edgesToTransfer: Edge[] = (sourceMap.edges || []).filter(
+        (e) => selectedNodeIds.has(e.source) && selectedNodeIds.has(e.target)
+      );
+
+      // 2. Tính toán offset tọa độ tương đối để cụm ô chuyển sang nằm ngay ngắn bên phải cụm ô cũ của map đích
+      if (targetMap.nodes && targetMap.nodes.length > 0) {
+        let targetMaxX = -Infinity;
+        let targetMinY = Infinity;
+        for (const n of targetMap.nodes) {
+          if (n.position.x > targetMaxX) targetMaxX = n.position.x;
+          if (n.position.y < targetMinY) targetMinY = n.position.y;
+        }
+
+        let sourceMinX = Infinity;
+        let sourceMinY = Infinity;
+        for (const n of nodesToTransfer) {
+          if (n.position.x < sourceMinX) sourceMinX = n.position.x;
+          if (n.position.y < sourceMinY) sourceMinY = n.position.y;
+        }
+
+        const deltaX = targetMaxX + 350 - sourceMinX;
+        const deltaY = targetMinY - sourceMinY;
+
+        for (const n of nodesToTransfer) {
+          n.position.x += deltaX;
+          n.position.y += deltaY;
+        }
+      }
+
+      // 3. Đảm bảo an toàn ID (tránh xung đột nếu là 'copy' hoặc ID bị trùng ở map đích)
+      const targetExistingIds = new Set((targetMap.nodes || []).map((n) => n.id));
+      const idMapping = new Map<string, string>();
+      const now = Date.now();
+
+      for (let i = 0; i < nodesToTransfer.length; i++) {
+        const node = nodesToTransfer[i];
+        const oldId = node.id;
+        if (action === 'copy' || targetExistingIds.has(oldId)) {
+          const newId = `node-${now}-${i}-${Math.random().toString(36).slice(2, 6)}`;
+          idMapping.set(oldId, newId);
+          node.id = newId;
+        }
+      }
+
+      const finalEdgesToTransfer: Edge[] = edgesToTransfer.map((e, idx) => {
+        const newSource = idMapping.get(e.source) || e.source;
+        const newTarget = idMapping.get(e.target) || e.target;
+        return {
+          ...e,
+          id: `e-${newSource}-${newTarget}-${now}-${idx}`,
+          source: newSource,
+          target: newTarget,
+        };
+      });
+
+      // 4. Chuyển giao các ảnh đính kèm (attachments & captions)
+      const newTargetAttachments = { ...(targetMap.attachments || {}) };
+      const newTargetCaptions = { ...(targetMap.attachmentCaptions || {}) };
+      const sourceAttachments = sourceMap.attachments || {};
+      const sourceCaptions = sourceMap.attachmentCaptions || {};
+
+      for (const node of nodesToTransfer) {
+        const content = node.data?.content || '';
+        for (const [attId, uri] of Object.entries(sourceAttachments)) {
+          if (content.includes(attId) || content.includes(uri)) {
+            newTargetAttachments[attId] = uri;
+            if (sourceCaptions[attId]) {
+              newTargetCaptions[attId] = sourceCaptions[attId];
+            }
+          }
+        }
+      }
+
+      // 5. Cập nhật Map đích
+      const updatedTargetMap: MapData = {
+        ...targetMap,
+        nodes: [...targetMap.nodes, ...nodesToTransfer],
+        edges: [...targetMap.edges, ...finalEdgesToTransfer],
+        attachments: newTargetAttachments,
+        attachmentCaptions: newTargetCaptions,
+        updatedAt: Date.now(),
+      };
+
+      // 6. Cập nhật Map nguồn (nếu là 'move' -> cắt bỏ các node và edge đã chuyển)
+      let updatedSourceMap: MapData = sourceMap;
+      if (action === 'move') {
+        updatedSourceMap = {
+          ...sourceMap,
+          nodes: sourceMap.nodes.filter((n) => !selectedNodeIds.has(n.id)),
+          edges: sourceMap.edges.filter(
+            (e) => !selectedNodeIds.has(e.source) && !selectedNodeIds.has(e.target)
+          ),
+          updatedAt: Date.now(),
+        };
+      }
+
+      // 7. Cập nhật state maps
+      setMaps((prev) =>
+        prev.map((m) => {
+          if (m.id === updatedTargetMap.id) return updatedTargetMap;
+          if (action === 'move' && m.id === updatedSourceMap.id) return updatedSourceMap;
+          return m;
+        })
+      );
+
+      // 8. Tự động đồng bộ Supabase nếu có
+      if (settings.supabaseUrl && settings.supabaseAnonKey) {
+        syncMapToSupabase(updatedTargetMap, false).catch(console.warn);
+        if (action === 'move') {
+          syncMapToSupabase(updatedSourceMap, false).catch(console.warn);
+        }
+      }
+
+      // 9. Đóng modal & reset trạng thái
+      setIsMoveModalOpen(false);
+      setIsMoveMode(false);
+      setMoveSelectedNodes([]);
+      setMoveSelectedEdges([]);
+      confetti({ particleCount: 35, spread: 70, origin: { y: 0.7 } });
+
+      // 10. Hỏi người dùng có muốn chuyển sang xem bản đồ đích ngay không
+      const actionText = action === 'move' ? 'di chuyển' : 'sao chép';
+      const switchNow = window.confirm(
+        ` Đã ${actionText} thành công ${nodesToTransfer.length} ô ghi chú và ${finalEdgesToTransfer.length} liên kết sang bản đồ "${targetMap.name}"!\n\nBạn có muốn chuyển đến mở bản đồ "${targetMap.name}" ngay bây giờ không?`
+      );
+      if (switchNow) {
+        setActiveMapId(targetMap.id);
+        setSelectedNodeId(null);
+      }
+    },
+    [activeMap, maps, moveSelectedNodes, settings.supabaseUrl, settings.supabaseAnonKey]
+  );
+
   // Create a new node at a given canvas position
   const handleAddNodeAtPosition = useCallback(
     (position: { x: number; y: number }) => {
@@ -1412,6 +1574,8 @@ export function App() {
         onAutoLayoutMap={handleAutoLayoutMap}
         canUndoMap={canUndoMap}
         onUndoMap={handleUndoMap}
+        isMoveMode={isMoveMode}
+        onToggleMoveMode={() => setIsMoveMode((prev) => !prev)}
       />
 
       {/* Infinite Canvas Area */}
@@ -1432,6 +1596,9 @@ export function App() {
             onNavigate={handleNavigateInternal}
             onDoubleClickedCanvas={handleAddNodeAtPosition}
             onAddNewNodeCenter={handleAddNodeCenter}
+            isMoveMode={isMoveMode}
+            onExitMoveMode={() => setIsMoveMode(false)}
+            onOpenMoveModal={handleOpenMoveModal}
           />
         </ReactFlowProvider>
       </main>
@@ -1616,6 +1783,17 @@ export function App() {
         onUpdateFlashcards={handleUpdateFlashcards}
         onFocusNode={handleFocusNode}
         onUpdateSettings={handleSaveSettings}
+      />
+
+      {/* Modal Di Chuyển / Sao Chép Ô Sang Map Khác */}
+      <MoveNodesModal
+        isOpen={isMoveModalOpen}
+        onClose={() => setIsMoveModalOpen(false)}
+        selectedNodes={moveSelectedNodes}
+        selectedEdges={moveSelectedEdges}
+        allMaps={maps}
+        currentMapId={activeMap.id}
+        onConfirm={handleExecuteTransfer}
       />
 
       {/* Modal Phóng To & Xem Ảnh Tương Tác Đa Năng */}

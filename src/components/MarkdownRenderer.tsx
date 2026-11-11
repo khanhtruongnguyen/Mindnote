@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import remarkGfm from 'remark-gfm';
-import { ExternalLink, Lightbulb, Compass, Maximize2 } from 'lucide-react';
+import { ExternalLink, Lightbulb, Compass, Maximize2, Sparkles } from 'lucide-react';
 import { parseBoxBlock } from '../utils/markdownCodec';
 import { openImageViewer } from './ImageViewerModal';
 
@@ -27,6 +27,7 @@ function parseInlineCssToReact(cssString: string): React.CSSProperties {
 interface MarkdownRendererProps {
   content: string;
   attachments?: Record<string, string>;
+  attachmentCaptions?: Record<string, string>;
   onNavigate?: (mapId?: string, noteId?: string) => void;
   onNodeClick?: (nodeId: string) => void;
 }
@@ -39,6 +40,7 @@ const URL_TRANSFORM = (url: string) => url;
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
   content,
   attachments = {},
+  attachmentCaptions = {},
   onNavigate,
   onNodeClick,
 }) => {
@@ -219,9 +221,18 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
     /* Render hình ảnh (cả URL web, data: URI, lẫn attachment:) */
     img: ({ src, alt }: { src?: string; alt?: string }) => {
       let actualSrc = src || '';
+      let attachId = '';
       if (actualSrc.startsWith('attachment:')) {
-        const attachmentId = actualSrc.replace('attachment:', '');
-        actualSrc = attachments[attachmentId] || '';
+        attachId = actualSrc.replace('attachment:', '');
+        actualSrc = attachments[attachId] || '';
+      } else {
+        // Tìm attachId dựa trên URL hoặc data URI
+        for (const [key, val] of Object.entries(attachments)) {
+          if (val === actualSrc) {
+            attachId = key;
+            break;
+          }
+        }
       }
 
       if (!actualSrc) {
@@ -232,14 +243,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
         );
       }
 
+      const caption = attachId ? attachmentCaptions[attachId] : undefined;
+
       return (
         <span
           className="relative inline-block max-w-full my-3 group cursor-zoom-in text-center mx-auto"
           onClick={(e) => {
             e.stopPropagation();
-            openImageViewer({ src: actualSrc, alt, title: alt });
+            openImageViewer({ src: actualSrc, alt, title: alt, caption });
           }}
-          title="Nhấp để mở & phóng to ảnh"
+          title={caption ? `Bản dịch/Tóm tắt AI: ${caption}` : 'Nhấp để mở & phóng to ảnh'}
         >
           <img
             src={actualSrc}
@@ -247,6 +260,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
             className="max-w-full h-auto rounded-xl border border-zinc-700/70 shadow-lg object-contain max-h-80 mx-auto transition-transform duration-200 group-hover:scale-[1.01] group-hover:border-purple-500/60"
             loading="lazy"
           />
+          {/* Huy hiệu: Đã dịch lời văn AI */}
+          {caption && (
+            <div
+              className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/75 backdrop-blur-md border border-purple-500/50 text-purple-200 text-[10px] font-semibold flex items-center gap-1 shadow-md pointer-events-none opacity-90 group-hover:opacity-100 transition-opacity"
+              title={`Bản tóm tắt AI: ${caption}`}
+            >
+              <Sparkles className="w-3 h-3 text-purple-300" />
+              <span>Đã dịch AI</span>
+            </div>
+          )}
           <div className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/65 backdrop-blur-md border border-white/20 text-white opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none shadow-md flex items-center gap-1 text-[10px]">
             <Maximize2 className="w-3 h-3 text-purple-300" />
             <span>Phóng to</span>
@@ -255,7 +278,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
         </span>
       );
     },
-  }), [attachments, onNavigate, onNodeClick]);
+  }), [attachments, attachmentCaptions, onNavigate, onNodeClick]);
 
   if (!content || !content.trim()) {
     return (

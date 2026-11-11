@@ -38,7 +38,9 @@ protocol.registerSchemesAsPrivileged([
 function createWindow() {
   ensureVaultDirectories();
 
-  const iconPath = path.join(__dirname, '..', 'public', 'icon-512.png');
+  const icoPath = path.join(__dirname, '..', 'public', 'icon.ico');
+  const pngPath = path.join(__dirname, '..', 'public', 'icon-512.png');
+  const iconPath = fs.existsSync(icoPath) ? icoPath : pngPath;
 
   mainWindow = new BrowserWindow({
     width: 1366,

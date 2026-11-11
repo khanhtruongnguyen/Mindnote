@@ -294,7 +294,7 @@ function buildAndRenderListBlock(
   const stack: ListItemNode[] = [];
 
   for (const line of rawLines) {
-    const match = line.match(/^(\s*)(?:([-*+])|(\d+)\.)\s+(.*)$/);
+    const match = line.match(/^(\s*)(?:([-*+])|(\d+)\.)(?:\s+(.*))?$/);
     if (!match) continue;
 
     const indentSpaces = (match[1] || '').replace(/\t/g, '  ').length;
@@ -302,10 +302,10 @@ function buildAndRenderListBlock(
     let itemText = match[4] || '';
     let checked: boolean | undefined = undefined;
 
-    const taskMatch = itemText.match(/^\[([ xX])\]\s+(.*)$/);
+    const taskMatch = itemText.match(/^\[([ xX])\](?:\s+(.*))?$/);
     if (taskMatch) {
       checked = taskMatch[1].toLowerCase() === 'x';
-      itemText = taskMatch[2];
+      itemText = taskMatch[2] || '';
     }
 
     const node: ListItemNode = {
@@ -501,9 +501,9 @@ export function markdownToHtml(
     }
 
     // Lists (- , * , + , 1. )
-    if (/^\s*(?:[-*+]|\d+\.)\s+/.test(line)) {
+    if (/^\s*(?:[-*+]|\d+\.)(?:\s+|$)/.test(line)) {
       const listLines: string[] = [];
-      while (i < lines.length && /^\s*(?:[-*+]|\d+\.)\s+/.test(lines[i])) {
+      while (i < lines.length && /^\s*(?:[-*+]|\d+\.)(?:\s+|$)/.test(lines[i])) {
         listLines.push(lines[i]);
         i++;
       }
@@ -669,6 +669,14 @@ function serializeInlineNodes(node: Node): string {
     return inner;
   }
 
+  // Safety fallback if list containers accidentally reach inline serialization
+  if (tag === 'ul' || tag === 'ol') {
+    return '\n' + serializeListElement(el, 0) + '\n';
+  }
+  if (tag === 'li') {
+    return '\n- ' + inner.trim() + '\n';
+  }
+
   return inner;
 }
 
@@ -678,7 +686,16 @@ function serializeListElement(listEl: HTMLElement, depth = 0): string {
   let orderCounter = 1;
 
   for (const child of Array.from(listEl.children)) {
-    if (child.tagName.toLowerCase() !== 'li') continue;
+    const childTag = child.tagName.toLowerCase();
+
+    // Hỗ trợ danh sách lồng cấp trực tiếp của Chromium khi người dùng bấm Tab hoặc indent
+    if (childTag === 'ul' || childTag === 'ol') {
+      const nestedMd = serializeListElement(child as HTMLElement, depth + 1);
+      if (nestedMd) lines.push(nestedMd);
+      continue;
+    }
+
+    if (childTag !== 'li') continue;
     const li = child as HTMLElement;
     const indent = '  '.repeat(depth);
 
@@ -814,6 +831,11 @@ function serializeBlockNode(node: Node): string {
     return serializeListElement(el, 0);
   }
 
+  // Standalone list item
+  if (tag === 'li') {
+    return `- ${Array.from(el.childNodes).map(serializeInlineNodes).join('').trim()}`;
+  }
+
   // 7. Blockquote
   if (tag === 'blockquote') {
     const innerMd = htmlToMarkdown(el);
@@ -828,13 +850,13 @@ function serializeBlockNode(node: Node): string {
     return '---';
   }
 
-  // 9. Paragraph or Div
-  if (tag === 'p' || tag === 'div') {
-    // Check if div contains block-level children
+  // 9. Paragraph or Div or Section
+  if (tag === 'p' || tag === 'div' || tag === 'section' || tag === 'article') {
+    // Check if element contains block-level children (such as Chromium's <p><ul>...</ul></p>)
     const hasBlockChildren = Array.from(el.children).some((c) =>
-      /^(P|DIV|H1|H2|H3|H4|UL|OL|TABLE|BLOCKQUOTE|PRE|HR)$/.test(c.tagName)
+      /^(P|DIV|H1|H2|H3|H4|UL|OL|LI|TABLE|BLOCKQUOTE|PRE|HR|SECTION|ARTICLE)$/.test(c.tagName)
     );
-    if (tag === 'div' && hasBlockChildren) {
+    if (hasBlockChildren) {
       return htmlToMarkdown(el);
     }
 

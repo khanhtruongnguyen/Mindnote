@@ -258,21 +258,37 @@
 }
 
 .mn-doc-surface ul {
-  list-style-type: disc;
+  list-style-type: disc !important;
+}
+
+.mn-doc-surface ul > li:not(.mn-task-item) {
+  list-style-type: disc !important;
 }
 
 .mn-doc-surface ul ul {
-  list-style-type: circle;
+  list-style-type: circle !important;
   margin-top: 0.2em;
   margin-bottom: 0.25em;
 }
 
+.mn-doc-surface ul ul > li:not(.mn-task-item) {
+  list-style-type: circle !important;
+}
+
 .mn-doc-surface ul ul ul {
-  list-style-type: square;
+  list-style-type: square !important;
+}
+
+.mn-doc-surface ul ul ul > li:not(.mn-task-item) {
+  list-style-type: square !important;
 }
 
 .mn-doc-surface ol {
-  list-style-type: decimal;
+  list-style-type: decimal !important;
+}
+
+.mn-doc-surface ol > li:not(.mn-task-item) {
+  list-style-type: decimal !important;
 }
 
 .mn-doc-surface li {

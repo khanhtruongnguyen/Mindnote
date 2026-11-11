@@ -26,6 +26,7 @@ import {
   BookOpen,
   RotateCcw,
   UploadCloud,
+  BoxSelect,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -61,6 +62,8 @@ interface HeaderProps {
   hasDriveConfigured?: boolean;
   isAiOpen?: boolean;
   onToggleAi?: () => void;
+  isMoveMode?: boolean;
+  onToggleMoveMode?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -95,6 +98,8 @@ export const Header: React.FC<HeaderProps> = ({
   hasDriveConfigured = false,
   isAiOpen = false,
   onToggleAi,
+  isMoveMode = false,
+  onToggleMoveMode,
 }) => {
   const isDesktop = typeof window !== 'undefined' && Boolean(window.mindnoteDesktop?.isDesktop);
   const attachmentCount = Object.keys(activeMap.attachments || {}).length;
@@ -392,6 +397,22 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Sparkles className="w-3.5 h-3.5 text-purple-300 animate-pulse" />
               <span>Hỏi & Agent AI</span>
+            </button>
+          )}
+
+          {/* Nút Khoanh vùng & Di chuyển sang Map khác (Desktop) */}
+          {!isMobile && onToggleMoveMode && (
+            <button
+              onClick={onToggleMoveMode}
+              title="Kéo chuột khoanh chọn vùng các ô để di chuyển hoặc sao chép sang Map khác"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold shadow-md transition-all hover:scale-[1.02] cursor-pointer ${
+                isMoveMode
+                  ? 'bg-amber-500 text-black border-amber-400 font-bold shadow-amber-500/30 ring-2 ring-amber-400/50'
+                  : 'bg-[#1c1c25] border-[#2e2e3d] text-zinc-300 hover:text-white hover:border-amber-500/40'
+              }`}
+            >
+              <BoxSelect className={`w-3.5 h-3.5 ${isMoveMode ? 'text-black' : 'text-amber-400'}`} />
+              <span>{isMoveMode ? 'Đang khoanh vùng...' : 'Di chuyển'}</span>
             </button>
           )}
 
@@ -759,6 +780,23 @@ export const Header: React.FC<HeaderProps> = ({
                   >
                     <GitBranch className="w-4 h-4 text-cyan-400" />
                     <span>Sắp xếp gọn Map (Xếp cây)</span>
+                  </button>
+                )}
+
+                {onToggleMoveMode && (
+                  <button
+                    onClick={() => {
+                      setMobileMenuOpen(false);
+                      onToggleMoveMode();
+                    }}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl transition-colors ${
+                      isMoveMode
+                        ? 'bg-amber-500/25 text-amber-300 font-bold border border-amber-500/40'
+                        : 'text-zinc-200 hover:bg-[#252535]'
+                    }`}
+                  >
+                    <BoxSelect className="w-4 h-4 text-amber-400" />
+                    <span>{isMoveMode ? 'Đang bật Khoanh vùng di chuyển' : 'Khoanh vùng di chuyển sang Map khác'}</span>
                   </button>
                 )}
 

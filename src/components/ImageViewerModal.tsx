@@ -12,12 +12,14 @@ import {
   Check,
   RefreshCw,
   FlipHorizontal,
+  Sparkles,
 } from 'lucide-react';
 
 export interface ImageViewerDetail {
   src: string;
   alt?: string;
   title?: string;
+  caption?: string;
 }
 
 export function openImageViewer(detail: ImageViewerDetail) {
@@ -400,6 +402,34 @@ export const ImageViewerModal: React.FC<ImageViewerModalProps> = ({
         <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none text-[11px] text-zinc-400/70 bg-black/50 backdrop-blur-md px-3 py-1 rounded-full border border-zinc-800/80 shadow-md">
           Cuộn chuột hoặc nhấp đúp để phóng to • Kéo để di chuyển • Phím Esc để đóng
         </div>
+
+        {/* AI Caption Floating Drawer */}
+        {currentImage.caption && (
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 max-w-xl w-[90%] sm:w-[540px] pointer-events-auto bg-[#14141d]/95 backdrop-blur-xl border border-purple-500/40 rounded-2xl p-3 shadow-2xl space-y-1.5 text-xs animate-in fade-in slide-in-from-bottom-2 duration-150 z-30">
+            <div className="flex items-center justify-between text-purple-300 font-semibold text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                <span>Bản tóm tắt / Lời văn AI của ảnh:</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(currentImage.caption || '');
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                }}
+                className="hover:text-white flex items-center gap-1 text-[10px] text-zinc-400 hover:text-purple-200 transition-colors cursor-pointer px-1.5 py-0.5 rounded bg-zinc-800/60"
+              >
+                {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                <span>{copied ? 'Đã chép' : 'Sao chép'}</span>
+              </button>
+            </div>
+            <p className="text-zinc-200 text-xs leading-relaxed max-h-24 overflow-y-auto pr-1 select-text">
+              {currentImage.caption}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Bottom Floating Control Dock */}
