@@ -220,7 +220,7 @@ export function App() {
     });
   }, [activeMap.id, activeMap.nodes, activeMap.edges, pushUndoSnapshot, handleUpdateCurrentMap]);
 
-  // Hàm gọi AI tạo bản tóm tắt ẩn cho ảnh đính kèm (An toàn bất đồng bộ)
+  // Hàm gọi AI tạo bản mô tả chi tiết cho ảnh đính kèm (An toàn bất đồng bộ)
   const generateCaptionForAttachment = useCallback(
     async (
       targetMapId: string,
@@ -231,7 +231,7 @@ export function App() {
     ) => {
       if (!settings.aiApiKey?.trim()) {
         if (showAlertOnError) {
-          alert('Vui lòng cài đặt API Key trong mục Trợ lý AI trước khi tạo tóm tắt ảnh!');
+          alert('Vui lòng cài đặt API Key trong mục Trợ lý AI trước khi tạo mô tả chi tiết ảnh!');
         }
         return;
       }
@@ -265,9 +265,9 @@ export function App() {
         }
       } catch (err: unknown) {
         const e = err as Error;
-        console.warn(`[AI Image Caption] Lỗi khi tóm tắt ảnh ${attachId}:`, e.message);
+        console.warn(`[AI Image Caption] Lỗi khi tạo mô tả chi tiết ảnh ${attachId}:`, e.message);
         if (showAlertOnError) {
-          alert(`Không thể tạo mô tả cho ảnh (${attachId}): ${e.message}`);
+          alert(`Không thể tạo mô tả chi tiết cho ảnh (${attachId}): ${e.message}`);
         }
       } finally {
         setLoadingCaptionIds((prev) => prev.filter((id) => id !== attachId));

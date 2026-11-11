@@ -31,6 +31,7 @@ import {
   AlertTriangle,
   Image as ImageIcon,
   Shuffle,
+  LayoutTemplate,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -221,11 +222,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       | 'custom'
       | 'explain_image'
       | 'format_table_css'
+      | 'reorganize_layout'
       | 'ocr_image'
       | 'describe_image',
     overrideImage?: string
   ) => {
     if (!selectedNode) return;
+    setShowAiWriter(true);
     setAiWriterLoading(true);
     setAiWriterError(null);
     setAiWriterResult(null);
@@ -730,7 +733,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   <ImageIcon className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                   <span className="font-semibold text-zinc-200 truncate">
-                    Bộ nhớ ảnh cho AI ({nodeAttachmentIds.length} ảnh):
+                    Bộ nhớ mô tả ảnh cho AI ({nodeAttachmentIds.length} ảnh):
                   </span>
                   {(() => {
                     const readyCount = nodeAttachmentIds.filter((id) =>
@@ -743,7 +746,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       return (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/20 text-purple-300 text-[10px] font-semibold">
                           <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                          Đang tạo tóm tắt...
+                          Đang phân tích & mô tả chi tiết...
                         </span>
                       );
                     }
@@ -751,14 +754,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       return (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-semibold">
                           <Check className="w-2.5 h-2.5" />
-                          Đã tóm tắt {readyCount}/{nodeAttachmentIds.length}
+                          Đã mô tả chi tiết {readyCount}/{nodeAttachmentIds.length}
                         </span>
                       );
                     }
                     return (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-semibold">
                         <AlertTriangle className="w-2.5 h-2.5" />
-                        Thiếu {nodeAttachmentIds.length - readyCount}/{nodeAttachmentIds.length} tóm tắt
+                        Thiếu {nodeAttachmentIds.length - readyCount}/{nodeAttachmentIds.length} mô tả chi tiết
                       </span>
                     );
                   })()}
@@ -770,10 +773,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       type="button"
                       onClick={handleRegenerateAllMissingCaptions}
                       className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-semibold cursor-pointer"
-                      title="Nhờ AI đọc và tạo tóm tắt cho các ảnh chưa có"
+                      title="Nhờ AI đọc và tạo mô tả chi tiết cho các ảnh chưa có"
                     >
                       <RefreshCw className="w-2.5 h-2.5" />
-                      <span>Tạo đủ</span>
+                      <span>Tạo đủ mô tả</span>
                     </button>
                   )}
                   <button
@@ -794,7 +797,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {showImageCaptionsPanel && (
                 <div className="p-2.5 pt-2 border-t border-[#26263a] space-y-2.5 max-h-56 overflow-y-auto bg-[#12121b]">
                   <p className="text-[11px] text-zinc-400 leading-relaxed">
-                    💡 Mỗi ảnh đính kèm có một <strong>bản tóm tắt ẩn</strong> để khi bạn hỏi đáp, tách nhánh hoặc tạo Flashcard, AI luôn hiểu 100% nội dung trong ảnh. Nếu lúc chèn ảnh bị mất mạng hoặc chưa ưng ý, bạn có thể <strong>sửa trực tiếp</strong> hoặc bấm <strong>Tạo lại bằng AI</strong>:
+                    💡 Mỗi ảnh đính kèm có một <strong>bản mô tả chi tiết ẩn</strong> để khi bạn hỏi đáp, tách nhánh hoặc tạo Flashcard, AI luôn hiểu 100% nội dung trong ảnh. Bạn có thể <strong>sửa trực tiếp</strong> hoặc bấm <strong>AI Tạo lại</strong> để AI phân tích mô tả sâu nhất:
                   </p>
 
                   {nodeAttachmentIds.map((attId, idx) => {
@@ -827,12 +830,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               </div>
                               <div className="text-[10px]">
                                 {isLoadingThis ? (
-                                  <span className="text-purple-300">⏳ AI đang phân tích ảnh...</span>
+                                  <span className="text-purple-300">⏳ AI đang phân tích & mô tả chi tiết ảnh...</span>
                                 ) : currentCap.trim() ? (
-                                  <span className="text-emerald-400">✅ Đã có bản tóm tắt đảm bảo</span>
+                                  <span className="text-emerald-400">✅ Đã có bản mô tả chi tiết</span>
                                 ) : (
                                   <span className="text-amber-400">
-                                    ⚠️ Chưa có bản tóm tắt (Hãy bấm Tạo bằng AI)
+                                    ⚠️ Chưa có bản mô tả chi tiết (Hãy bấm Tạo bằng AI)
                                   </span>
                                 )}
                               </div>
@@ -848,7 +851,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <RefreshCw
                               className={`w-3 h-3 ${isLoadingThis ? 'animate-spin' : ''}`}
                             />
-                            <span>{currentCap.trim() ? 'AI Tạo lại' : 'AI Tạo tóm tắt'}</span>
+                            <span>{currentCap.trim() ? 'AI Mô tả lại' : 'AI Mô tả chi tiết'}</span>
                           </button>
                         </div>
 
@@ -1031,6 +1034,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {/* Preset Action Chips */}
             {showAiPresets && (
               <div className="flex flex-wrap gap-1.5 max-w-full animate-in fade-in duration-100">
+                <button
+                  type="button"
+                  disabled={aiWriterLoading}
+                  onClick={() => handleRunAiWriter('reorganize_layout')}
+                  title="AI đọc hiểu để sắp xếp lại bố cục thật gọn gàng, logic. TUYỆT ĐỐI KHÔNG ĐƯỢC THAY ĐỔI NỘI DUNG, không dùng icon hay gạch ngang cách dòng."
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-950/40 hover:bg-indigo-900/60 text-indigo-200 border border-indigo-500/40 hover:border-indigo-400 text-[11px] font-semibold transition-colors cursor-pointer disabled:opacity-50 shadow-sm"
+                >
+                  <LayoutTemplate className="w-3.5 h-3.5 text-indigo-300 shrink-0" />
+                  <span>🧹 Sắp xếp bố cục (Không đổi nội dung)</span>
+                </button>
+
                 <button
                   type="button"
                   disabled={aiWriterLoading}
@@ -1315,6 +1329,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               settings={settings}
               onToggleAiWriter={() => setShowAiWriter(!showAiWriter)}
               showAiWriter={showAiWriter}
+              onReorganizeLayout={() => handleRunAiWriter('reorganize_layout')}
+              isReorganizingLayout={aiWriterLoading}
               isFullscreen={isFullscreen}
               onToggleFullscreen={() => setIsFullscreen(!isFullscreen)}
               isMobile={isMobile}

@@ -90,8 +90,8 @@ export async function resolveImageForAi(img: string): Promise<string> {
 }
 
 /**
- * Nhúng bản tóm tắt hình ảnh (attachmentCaptions) ngay dưới mỗi thẻ ![...](attachment:id)
- * để AI luôn "nhìn" và hiểu được nội dung hình ảnh trong ô mà không tốn băng thông gửi lại file ảnh.
+ * Nhúng bản mô tả chi tiết hình ảnh (attachmentCaptions) ngay dưới mỗi thẻ ![...](attachment:id)
+ * để AI luôn "nhìn" và hiểu sâu nội dung hình ảnh trong ô mà không tốn băng thông gửi lại file ảnh.
  */
 export function injectAttachmentCaptionsIntoContent(
   content: string,
@@ -101,9 +101,9 @@ export function injectAttachmentCaptionsIntoContent(
   return content.replace(/!\[([^\]]*)\]\(attachment:([^\s)]+)\)/g, (fullMatch, alt, attachId) => {
     const caption = attachmentCaptions?.[attachId]?.trim();
     if (caption) {
-      return `${fullMatch}\n> 🖼️ **[Bản tóm tắt AI của ảnh ${attachId}${alt ? ` (${alt})` : ''}]:** ${caption}`;
+      return `${fullMatch}\n> 🖼️ **[Bản mô tả chi tiết AI của ảnh ${attachId}${alt ? ` (${alt})` : ''}]:** ${caption}`;
     }
-    return `${fullMatch}\n> 🖼️ *[Ảnh đính kèm ${attachId} — chưa tạo bản tóm tắt AI]*`;
+    return `${fullMatch}\n> 🖼️ *[Ảnh đính kèm ${attachId} — chưa tạo bản mô tả chi tiết AI]*`;
   });
 }
 
@@ -436,8 +436,8 @@ ${edgesSummary}
   },
 
   /**
-   * AI Tạo Bản Tóm Tắt Ẩn (Image Caption/Summary) cho một bức ảnh đính kèm
-   * Giúp AI luôn nắm bắt đầy đủ dữ liệu trong ảnh khi đọc ô ghi chú hoặc toàn bản đồ.
+   * AI Tạo Bản Mô Tả Chi Tiết (Image Detailed Description & Transcription) cho một bức ảnh đính kèm
+   * Phân tích sâu, trích xuất toàn bộ chữ viết, số liệu, sơ đồ và công thức để AI nắm bắt 100% dữ liệu ảnh.
    */
   async generateImageCaption({
     baseUrl,
@@ -457,19 +457,22 @@ ${edgesSummary}
     const cleanUrl = cleanBaseUrl(baseUrl);
     const resolvedImage = await resolveImageForAi(imageBase64);
 
-    let systemPrompt = `Bạn là trợ lý thị giác AI chuyên phân tích hình ảnh học thuật (sơ đồ y khoa, bảng biểu, đồ thị toán học, công thức, slide bài giảng).
-Nhiệm vụ của bạn: Hãy đọc kỹ hình ảnh này và viết một BẢN TÓM TẮT DỮ LIỆU HÌNH ẢNH cô đọng, đầy đủ thông tin cốt lõi nhất (khoảng 2-5 câu hoặc các ý ngắn gọn) bằng tiếng Việt.
-QUY TẮC:
-1. Ghi rõ: Ảnh chụp/vẽ về chủ đề gì, các chữ viết/nhãn quan trọng, số liệu/công thức toán ($...$) và mối liên hệ mũi tên chính trong ảnh.
-2. Không chào hỏi rườm rà, chỉ trả về nội dung tóm tắt súc tích để lưu làm bộ nhớ cho AI.`;
+    let systemPrompt = `Bạn là trợ lý thị giác AI cấp cao chuyên đọc hiểu và phiên giải hình ảnh học thuật chi tiết sâu (sơ đồ y khoa, giải phẫu, cơ chế bệnh sinh, đồ thị toán học, công thức LaTeX, bảng số liệu, slide bài giảng và hình chụp minh họa).
+Nhiệm vụ của bạn: TUYỆT ĐỐI KHÔNG ĐƯỢC TÓM TẮT SƠ SÀI. Hãy đọc toàn diện bức ảnh và viết một BẢN MÔ TẢ CHI TIẾT ĐẦY ĐỦ TỪNG THÀNH PHẦN CỦA BỨC ẢNH bằng tiếng Việt chuẩn xác:
+QUY TẮC BẮT BUỘC:
+1. TRÍCH XUẤT TOÀN BỘ CHỮ VIẾT & SỐ LIỆU: Đọc hết mọi tiêu đề, nhãn (labels), chỉ dẫn, giá trị số liệu, bảng biểu xuất hiện trong ảnh. Nếu có công thức toán/hóa/y sinh thì chuyển đổi chính xác sang cú pháp KaTeX ($...$ hoặc $$...$$).
+2. MÔ TẢ CẤU TRÚC VÀ SƠ ĐỒ CHI TIẾT: Nêu rõ sơ đồ dòng chảy (flowchart), các khối hình, mũi tên chỉ hướng (từ đâu đến đâu), quan hệ nguyên nhân - kết quả, các nhánh phân loại, màu sắc quy ước và ý nghĩa của từng phần.
+3. VỚI HÌNH Y KHOA / LÂM SÀNG: Ghi chi tiết các triệu chứng, tổn thương, xét nghiệm, bước chẩn đoán, thuốc, liều lượng, cơ chế sinh lý bệnh được vẽ trong ảnh.
+4. TRÌNH BÀY MẠCH LẠC: Chia thành các đề mục hoặc gạch đầu dòng rõ ràng, đầy đủ thông tin để người không nhìn thấy ảnh vẫn nắm bắt được 100% nội dung ảnh.
+5. Tuyệt đối không chào hỏi rườm rà, không thêm bớt ngoài ảnh, chỉ trả về nội dung mô tả chi tiết để làm bộ nhớ dữ liệu cho AI.`;
 
     if (mapContext && mapContext.trim()) {
       systemPrompt += `\n\n[NGỮ CẢNH BẢN ĐỒ]:\n${mapContext.trim()}`;
     }
 
     const userText = nodeLabel
-      ? `Hình ảnh này nằm trong ô ghi chú "${nodeLabel}". Hãy tóm tắt chính xác mọi thông tin, chữ viết, công thức và sơ đồ trong ảnh này:`
-      : `Hãy tóm tắt chính xác mọi thông tin, chữ viết, công thức và sơ đồ trong ảnh này:`;
+      ? `Hình ảnh này nằm trong ô ghi chú "${nodeLabel}". Hãy mô tả chi tiết, đầy đủ toàn bộ nội dung, chữ viết, số liệu, công thức và sơ đồ trong bức ảnh này (tuyệt đối không tóm tắt sơ sài):`
+      : `Hãy mô tả chi tiết, đầy đủ toàn bộ nội dung, chữ viết, số liệu, công thức và sơ đồ trong bức ảnh này (tuyệt đối không tóm tắt sơ sài):`;
 
     const res = await fetch(`${cleanUrl}/chat/completions`, {
       method: 'POST',
@@ -495,14 +498,14 @@ QUY TẮC:
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error?.message || err.message || `Lỗi tạo tóm tắt ảnh (${res.status})`);
+      throw new Error(err.error?.message || err.message || `Lỗi tạo mô tả chi tiết ảnh (${res.status})`);
     }
 
     const data = await res.json();
     const rawContent = data.choices?.[0]?.message?.content || '';
     const cleaned = cleanAiOutput(rawContent).trim();
     if (!cleaned) {
-      throw new Error('Model AI không trả về nội dung tóm tắt cho ảnh này.');
+      throw new Error('Model AI không trả về nội dung mô tả chi tiết cho ảnh này.');
     }
     return cleaned;
   },
@@ -535,6 +538,7 @@ QUY TẮC:
       | 'custom'
       | 'explain_image'
       | 'format_table_css'
+      | 'reorganize_layout'
       | 'ocr_image'
       | 'describe_image';
     customInstruction?: string;
@@ -562,6 +566,18 @@ QUY TẮC:
         instruction =
           'Hãy sửa lỗi chính tả, cải thiện ngữ pháp, làm cho câu từ mượt mà, chuyên nghiệp và chuẩn hóa cấu trúc Markdown (tiêu đề, in đậm, callout box).';
         break;
+      case 'reorganize_layout':
+        instruction =
+          `Hãy đọc hiểu sâu sắc nội dung hiện có để TỰ ĐỘNG SẮP XẾP, TỔ CHỨC VÀ BỐ CỤC LẠI CHO THẬT GỌN GÀNG, KHOA HỌC:
+QUY TẮC BẮT BUỘC (TUÂN THỦ TUYỆT ĐỐI):
+1. ĐỌC HIỂU ĐỂ SẮP XẾP CHÍNH XÁC: Nhận diện cấu trúc luận điểm, các ý chính, ý phụ, nguyên nhân - kết quả, các bước hoặc nhóm nội dung liên quan để sắp xếp lại theo một trình tự logic, mạch lạc, dễ theo dõi nhất.
+2. TUYỆT ĐỐI KHÔNG ĐƯỢC THAY ĐỔI NỘI DUNG: Giữ nguyên 100% toàn bộ thông tin, câu chữ, ý tứ, số liệu, thuật ngữ, công thức của người dùng. KHÔNG tóm tắt làm mất ý, KHÔNG bịa đặt thêm nội dung ngoài bài, KHÔNG viết lại làm sai lệch thông tin gốc.
+3. BỐ CỤC ĐƠN GIẢN, TRONG SÁNG:
+   - TUYỆT ĐỐI KHÔNG DÙNG ICON / EMOJI (Cấm dùng: 📌, 💡, 🚀, 🎯, ⭐, 📝, v.v.).
+   - TUYỆT ĐỐI KHÔNG DÙNG GẠCH NGANG CÁCH DÒNG (Cấm dùng: --- hoặc *** hoặc <hr>).
+   - Chỉ dùng cấu trúc Markdown chuẩn mực: Tiêu đề phân cấp (##, ###), danh sách thụt đầu dòng rõ ràng (- hoặc 1.), và đoạn văn gãy gọn.
+4. GIỮ NGUYÊN ẢNH: Nếu có thẻ ảnh ![...](attachment:...), phải giữ nguyên đúng vị trí phù hợp trong bài.`;
+        break;
       case 'format_table_css':
         instruction =
           'Hãy nhận diện toàn bộ bảng biểu thô, dữ liệu phân cột hoặc các ký tự rời rạc/khó đọc trong ô ghi chú này, và chuyển đổi thành: 1. Bảng Markdown chuẩn (| Cột 1 | Cột 2 |...) căn chỉnh ngay ngắn, 2. Khối đóng ô / Callout box (> 📌 [Tiêu đề]) phong cách Obsidian đẹp mắt, 3. Các ký tự toán/khoa học chuyển thành KaTeX ($...$). Đảm bảo trình bày chuẩn đẹp, không bị lỗi font hay vỡ cấu trúc bảng.';
@@ -588,8 +604,16 @@ QUY TẮC BẮT BUỘC:
 1. 100% tiếng Việt tự nhiên, không tiếng Trung, không xuất thẻ hệ thống hay [ATLAS-OK].
 2. Sử dụng Markdown đẹp mắt (heading, bold, list, blockquote).
 3. Sử dụng KaTeX ($...$ và $$...$$) cho công thức toán học nếu có.
-4. Nếu trong bài viết gốc có thẻ ảnh đính kèm dạng ![...](attachment:...), hãy GIỮ NGUYÊN thẻ ![...](attachment:...) đó (trừ khi người dùng yêu cầu mô tả thay ảnh). KHÔNG lặp lại dòng "> 🖼️ [Bản tóm tắt AI của ảnh...]" vào kết quả.
+4. Nếu trong bài viết gốc có thẻ ảnh đính kèm dạng ![...](attachment:...), hãy GIỮ NGUYÊN thẻ ![...](attachment:...) đó (trừ khi người dùng yêu cầu mô tả thay ảnh). KHÔNG lặp lại dòng "> 🖼️ [Bản mô tả chi tiết AI của ảnh...]" vào kết quả.
 5. CHỈ TRẢ VỀ nội dung Markdown của ô ghi chú. KHÔNG kèm câu chào đầu hay lời giải thích ngoài lề.`;
+
+    if (mode === 'reorganize_layout') {
+      fullSystemPrompt += `\nLƯU Ý ĐẶC BIỆT KHI SẮP XẾP BỐ CỤC:
+- TUYỆT ĐỐI KHÔNG ĐƯỢC THAY ĐỔI NỘI DUNG CÂU CHỮ VÀ SỐ LIỆU GỐC CỦA NGƯỜI DÙNG.
+- CẤM SỬ DỤNG ICON/EMOJI DƯỚI MỌI HÌNH THỨC (không dùng 📌, 💡, 🚀, v.v.).
+- CẤM SỬ DỤNG GẠCH NGANG CÁCH DÒNG (không dùng --- hoặc *** hoặc <hr>).
+- Bố cục đơn giản, sạch sẽ chỉ với tiêu đề ##, ### và danh sách thụt lề gãy gọn.`;
+    }
 
     if (mapContext && mapContext.trim()) {
       fullSystemPrompt += `\n\n[NGỮ CẢNH SỔ TAY / KIẾN THỨC NỀN CỦA BẢN ĐỒ]:\n${mapContext.trim()}\n(LƯU Ý: Hãy đối chiếu và sử dụng kiến thức, thuật ngữ trong ngữ cảnh này để viết nội dung chính xác theo giáo trình!)`;
@@ -668,7 +692,7 @@ ${instruction}`;
     apiKey: string;
     model: string;
     selectedText: string;
-    action: 'expand' | 'summarize' | 'katex' | 'table_box' | 'wikilink' | 'polish' | 'custom';
+    action: 'expand' | 'summarize' | 'katex' | 'table_box' | 'wikilink' | 'polish' | 'reorganize' | 'custom';
     customPrompt?: string;
     nodeLabel?: string;
     allNodeLabels?: string[];
@@ -699,6 +723,10 @@ ${instruction}`;
       case 'polish':
         taskPrompt =
           'Hãy trau chuốt câu từ, sửa lỗi chính tả, in đậm (**...**) các từ khóa cốt lõi trong đoạn văn bản này.';
+        break;
+      case 'reorganize':
+        taskPrompt =
+          'Hãy đọc hiểu logic đoạn văn bản đang chọn và sắp xếp lại bố cục thật gọn gàng, khoa học. TUYỆT ĐỐI KHÔNG ĐƯỢC THAY ĐỔI NỘI DUNG, không thêm bớt ý, giữ nguyên 100% câu chữ và số liệu gốc. Bố cục đơn giản: CẤM DÙNG ICON/EMOJI (📌, 💡, 🚀...), CẤM DÙNG GẠCH NGANG CÁCH DÒNG (---). Chỉ dùng tiêu đề và danh sách phân cấp chuẩn mực.';
         break;
       case 'custom':
         taskPrompt = customPrompt || 'Hãy cải thiện đoạn văn bản đang chọn này.';

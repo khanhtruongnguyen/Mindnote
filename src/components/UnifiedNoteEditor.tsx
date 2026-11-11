@@ -37,6 +37,7 @@ import {
   Wand2,
   Loader2,
   Check,
+  LayoutTemplate,
 } from 'lucide-react';
 import type { CustomNode, AppSettings } from '../types';
 import { AiService } from '../services/aiService';
@@ -66,6 +67,8 @@ interface UnifiedNoteEditorProps {
   onOpenLinkModal?: () => void;
   onToggleAiWriter?: () => void;
   showAiWriter?: boolean;
+  onReorganizeLayout?: () => void;
+  isReorganizingLayout?: boolean;
   isFullscreen?: boolean;
   onToggleFullscreen?: () => void;
   isMobile?: boolean;
@@ -131,6 +134,8 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   settings,
   onToggleAiWriter,
   showAiWriter = false,
+  onReorganizeLayout,
+  isReorganizingLayout = false,
   isFullscreen = false,
   onToggleFullscreen,
 }) => {
@@ -355,7 +360,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   // Run Inline AI on currently selected text
   const handleRunInlineAi = useCallback(
     async (
-      action: 'expand' | 'summarize' | 'katex' | 'table_box' | 'wikilink' | 'polish' | 'custom'
+      action: 'expand' | 'summarize' | 'katex' | 'table_box' | 'wikilink' | 'polish' | 'reorganize' | 'custom'
     ) => {
       const targetText = selectedTextForAi.trim();
       if (!targetText || inlineAiLoading) return;
@@ -1723,6 +1728,23 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
 
         {/* PHÍA PHẢI: AI VIẾT, MÃ NGUỒN & TOÀN MÀN HÌNH */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {onReorganizeLayout && (
+            <button
+              type="button"
+              disabled={isReorganizingLayout}
+              onClick={onReorganizeLayout}
+              title="AI đọc hiểu để tự động sắp xếp lại bố cục thật gọn gàng, logic. TUYỆT ĐỐI KHÔNG ĐƯỢC THAY ĐỔI NỘI DUNG, không dùng icon hay gạch ngang."
+              className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/35 transition-all cursor-pointer disabled:opacity-50"
+            >
+              {isReorganizingLayout ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+              ) : (
+                <LayoutTemplate className="w-3.5 h-3.5 text-indigo-400" />
+              )}
+              <span className="hidden sm:inline">Bố cục lại</span>
+            </button>
+          )}
+
           {onToggleAiWriter && (
             <button
               type="button"
@@ -1799,6 +1821,16 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                disabled={inlineAiLoading}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => handleRunInlineAi('reorganize')}
+                title="AI đọc hiểu để sắp xếp lại đoạn đang chọn thật gọn gàng, không đổi nội dung, không icon hay gạch ngang"
+                className="px-2 py-0.5 rounded-md bg-indigo-600/20 hover:bg-indigo-600/35 text-indigo-200 border border-indigo-500/35 text-[11px] font-medium cursor-pointer disabled:opacity-50"
+              >
+                🧹 Bố cục gọn
+              </button>
               <button
                 type="button"
                 disabled={inlineAiLoading}

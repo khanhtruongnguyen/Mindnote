@@ -252,7 +252,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
             e.stopPropagation();
             openImageViewer({ src: actualSrc, alt, title: alt, caption });
           }}
-          title={caption ? `Bản dịch/Tóm tắt AI: ${caption}` : 'Nhấp để mở & phóng to ảnh'}
+          title={caption ? `Bản mô tả chi tiết AI: ${caption}` : 'Nhấp để mở & phóng to ảnh'}
         >
           <img
             src={actualSrc}
@@ -264,7 +264,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(({
           {caption && (
             <div
               className="absolute top-2 left-2 px-2 py-0.5 rounded-lg bg-black/75 backdrop-blur-md border border-purple-500/50 text-purple-200 text-[10px] font-semibold flex items-center gap-1 shadow-md pointer-events-none opacity-90 group-hover:opacity-100 transition-opacity"
-              title={`Bản tóm tắt AI: ${caption}`}
+              title={`Bản mô tả chi tiết AI: ${caption}`}
             >
               <Sparkles className="w-3 h-3 text-purple-300" />
               <span>Đã dịch AI</span>
