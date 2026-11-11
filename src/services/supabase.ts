@@ -141,7 +141,26 @@ export async function uploadAttachmentToSupabase(
     }
 
     const { data: pubData } = client.storage.from('mindnote_attachments').getPublicUrl(filePath);
-    return pubData?.publicUrl || null;
+    const publicUrl = pubData?.publicUrl;
+    if (!publicUrl) return null;
+
+    // Kiểm tra xem URL công khai có thực sự truy cập được không (Bucket có bật Public không?)
+    try {
+      const probeRes = await fetch(publicUrl, { method: 'HEAD' }).catch(() =>
+        fetch(publicUrl, { method: 'GET', headers: { Range: 'bytes=0-10' } })
+      );
+      if (!probeRes.ok) {
+        console.warn(
+          `[Supabase Storage] Bucket 'mindnote_attachments' chưa được bật 'Public' hoặc bị chặn quyền đọc (HTTP ${probeRes.status}). Giữ nguyên Base64 an toàn để không hỏng ảnh hiển thị.`
+        );
+        return null;
+      }
+    } catch (probeErr) {
+      console.warn('[Supabase Storage] Không thể kết nối tới CDN ảnh, giữ nguyên Base64:', probeErr);
+      return null;
+    }
+
+    return publicUrl;
   } catch (e) {
     console.warn('[Supabase Storage] Exception when uploading image:', e);
     return null;

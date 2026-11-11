@@ -137,7 +137,7 @@ export function renderInlineMarkdownToHtml(
       displaySrc = attachments[attachId] || '';
     }
     const imgTag = displaySrc
-      ? `<img src="${escapeAttr(displaySrc)}" alt="${escapeAttr(cleanAlt || 'Hình ảnh')}" class="mn-editor-img" />`
+      ? `<img src="${escapeAttr(displaySrc)}" alt="${escapeAttr(cleanAlt || 'Hình ảnh')}" class="mn-editor-img" loading="lazy" onerror="this.classList.add('mn-img-error');" />`
       : `<span class="mn-missing-img">[Không tìm thấy ảnh: ${escapeHtml(cleanAlt || cleanSrc)}]</span>`;
 
     const captionHtml = cleanAlt

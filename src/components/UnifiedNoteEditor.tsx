@@ -222,7 +222,9 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
     const htmlChangedExternally = html !== undefined && html !== lastEmittedHtmlRef.current;
     const attachmentsChanged = attachmentsCount !== lastAttachmentsCountRef.current;
 
-    if (contentChangedExternally || htmlChangedExternally || attachmentsChanged || !el.innerHTML) {
+    // Chỉ đồng bộ lại innerHTML nếu nội dung thay đổi TỪ BÊN NGOÀI hoặc khi mount lần đầu
+    // Không ghi đè khi đang tự gõ / dán ảnh cục bộ bên trong editor để tránh race condition & mất con trỏ
+    if (contentChangedExternally || !el.innerHTML) {
       if (html && html.trim() && !contentChangedExternally) {
         el.innerHTML = html;
       } else {
@@ -232,6 +234,12 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       el.setAttribute('data-empty', isEmpty ? 'true' : 'false');
       lastEmittedContentRef.current = content;
       lastEmittedHtmlRef.current = html;
+      lastAttachmentsCountRef.current = attachmentsCount;
+    } else if (htmlChangedExternally && !el.contains(document.activeElement)) {
+      el.innerHTML = html;
+      lastEmittedHtmlRef.current = html;
+      lastAttachmentsCountRef.current = attachmentsCount;
+    } else if (attachmentsChanged) {
       lastAttachmentsCountRef.current = attachmentsCount;
     }
   }, [content, html, attachments, sourceMode]);
@@ -355,6 +363,107 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       saveSelection();
     },
     [restoreSelection, emitChanges, saveSelection]
+  );
+
+  // Chèn Widget Hình ảnh chuẩn DOM Range API (Trực tiếp gán src trong bộ nhớ, KHÔNG qua execCommand để tránh lỗi Chrome truncate chuỗi Base64)
+  const insertImageAtCursor = useCallback(
+    (
+      attachId: string,
+      src: string,
+      alt: string = 'Ảnh đính kèm',
+      captionText?: string,
+      targetRange?: Range | null
+    ) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+
+      editor.focus();
+
+      // Xác định Range hợp lệ để chèn
+      let range = targetRange;
+      if (!range || !editor.contains(range.commonAncestorContainer)) {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0 && editor.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+          range = sel.getRangeAt(0).cloneRange();
+        } else if (savedRangeRef.current && editor.contains(savedRangeRef.current.commonAncestorContainer)) {
+          range = savedRangeRef.current.cloneRange();
+        }
+      }
+
+      if (!range || !editor.contains(range.commonAncestorContainer)) {
+        range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+      }
+
+      // Tạo DOM elements trực tiếp trong bộ nhớ JS
+      const widget = document.createElement('span');
+      widget.className = 'mn-image-widget';
+      widget.contentEditable = 'false';
+      widget.setAttribute('data-raw-src', `attachment:${attachId}`);
+      widget.setAttribute('data-alt', alt);
+
+      const img = document.createElement('img');
+      img.src = src;
+      img.alt = alt;
+      img.className = 'mn-editor-img';
+      img.loading = 'eager';
+      img.onerror = () => {
+        if (attachments && attachments[attachId] && attachments[attachId] !== img.src) {
+          img.src = attachments[attachId];
+        } else {
+          img.classList.add('mn-img-error');
+        }
+      };
+      widget.appendChild(img);
+
+      if (captionText && captionText.trim() && captionText !== 'Ảnh dán' && captionText !== 'Ảnh đính kèm') {
+        const cap = document.createElement('span');
+        cap.className = 'mn-img-caption';
+        cap.textContent = captionText.trim();
+        widget.appendChild(cap);
+      }
+
+      const pAfter = document.createElement('p');
+      pAfter.innerHTML = '<br>';
+
+      range.deleteContents();
+
+      // Kiểm tra vị trí chèn trong cây DOM
+      let startNode: Node | null = range.startContainer;
+      if (startNode.nodeType === Node.TEXT_NODE) {
+        startNode = startNode.parentNode;
+      }
+
+      const blockEl = (startNode as HTMLElement)?.closest('p, div, h1, h2, h3, h4, blockquote, li');
+      if (blockEl && blockEl !== editor && editor.contains(blockEl)) {
+        const isBlockEmpty =
+          !blockEl.textContent?.trim() &&
+          (!blockEl.children.length || Boolean(blockEl.querySelector('br')));
+
+        if (isBlockEmpty) {
+          blockEl.replaceWith(widget, pAfter);
+        } else {
+          blockEl.insertAdjacentElement('afterend', pAfter);
+          blockEl.insertAdjacentElement('afterend', widget);
+        }
+      } else {
+        range.insertNode(pAfter);
+        range.insertNode(widget);
+      }
+
+      // Đặt con trỏ soạn thảo vào đoạn văn mới ngay sau ảnh để gõ tiếp
+      const newRange = document.createRange();
+      newRange.setStart(pAfter, 0);
+      newRange.collapse(true);
+      const currentSel = window.getSelection();
+      currentSel?.removeAllRanges();
+      currentSel?.addRange(newRange);
+      savedRangeRef.current = newRange.cloneRange();
+
+      emitChanges();
+    },
+    [emitChanges, attachments]
   );
 
   // Run Inline AI on currently selected text
@@ -1276,17 +1385,28 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
         for (let i = 0; i < items.length; i++) {
           if (items[i].type.indexOf('image') !== -1) {
             e.preventDefault();
+
+            // 1. Lưu range con trỏ ngay tại thời điểm sự kiện dán đồng bộ, trước bất kỳ await nào!
+            const sel = window.getSelection();
+            let capturedRange: Range | null = null;
+            if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.getRangeAt(0).commonAncestorContainer)) {
+              capturedRange = sel.getRangeAt(0).cloneRange();
+            } else if (savedRangeRef.current && editorRef.current?.contains(savedRangeRef.current.commonAncestorContainer)) {
+              capturedRange = savedRangeRef.current.cloneRange();
+            }
+
             const file = items[i].getAsFile();
             if (file) {
               try {
                 // Nén vừa phải: bảo toàn nét chữ & công thức toán, không nén nếu file <= 800KB
                 const { dataUrl } = await optimizeImageModerately(file);
                 const attachId = `img-${Date.now()}`;
-                const saveResult = await onSaveAttachment(attachId, dataUrl);
-                const displaySrc = (typeof saveResult === 'string' && saveResult) ? saveResult : dataUrl;
-                insertHtmlAtCursor(
-                  `<span class="mn-image-widget" contenteditable="false" data-raw-src="attachment:${attachId}" data-alt="Ảnh dán"><img src="${escapeAttr(displaySrc)}" alt="Ảnh dán" class="mn-editor-img" /></span><p><br></p>`
-                );
+
+                // 2. Chèn ngay vào editor bằng local dataUrl (Hiển thị tức thì 0ms, 100% không vỡ ảnh)
+                insertImageAtCursor(attachId, dataUrl, 'Ảnh dán', undefined, capturedRange);
+
+                // 3. Lưu trữ ngầm (Base64 hoặc Supabase Storage CDN nếu có cấu hình)
+                await onSaveAttachment(attachId, dataUrl);
               } catch (err) {
                 console.warn('Lỗi xử lý dán ảnh:', err);
               }
@@ -1304,7 +1424,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
         emitChanges();
       }
     },
-    [onSaveAttachment, attachments, insertHtmlAtCursor, emitChanges]
+    [onSaveAttachment, attachments, insertImageAtCursor, emitChanges]
   );
 
   // Upload Image from disk
@@ -1312,14 +1432,13 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
     const file = e.target.files?.[0];
     if (file && onSaveAttachment) {
       try {
+        const capturedRange = savedRangeRef.current ? savedRangeRef.current.cloneRange() : null;
         // Nén vừa phải: bảo toàn nét chữ & công thức toán, không nén nếu file <= 800KB
         const { dataUrl } = await optimizeImageModerately(file);
         const attachId = `img-${Date.now()}`;
-        const saveResult = await onSaveAttachment(attachId, dataUrl);
-        const displaySrc = (typeof saveResult === 'string' && saveResult) ? saveResult : dataUrl;
-        insertHtmlAtCursor(
-          `<span class="mn-image-widget" contenteditable="false" data-raw-src="attachment:${attachId}" data-alt="${escapeAttr(file.name)}"><img src="${escapeAttr(displaySrc)}" alt="${escapeAttr(file.name)}" class="mn-editor-img" /><span class="mn-img-caption">${escapeHtml(file.name)}</span></span><p><br></p>`
-        );
+
+        insertImageAtCursor(attachId, dataUrl, file.name, file.name, capturedRange);
+        await onSaveAttachment(attachId, dataUrl);
       } catch (err) {
         console.warn('Lỗi xử lý tải ảnh từ máy tính:', err);
       }
