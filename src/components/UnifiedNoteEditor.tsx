@@ -54,7 +54,8 @@ import { optimizeImageModerately } from '../utils/imageOptimizer';
 
 interface UnifiedNoteEditorProps {
   content: string;
-  onChange: (newContent: string) => void;
+  html?: string;
+  onChange: (newContent: string, newHtml?: string) => void;
   attachments?: Record<string, string>;
   onSaveAttachment?: (id: string, base64: string) => Promise<string | void> | void;
   allNodes?: CustomNode[];
@@ -119,6 +120,7 @@ const QUICK_MATH_SYMBOLS = [
 
 export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   content,
+  html,
   onChange,
   attachments = {},
   onSaveAttachment,
@@ -136,6 +138,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
   const lastEmittedContentRef = useRef<string>(content);
+  const lastEmittedHtmlRef = useRef<string | undefined>(html);
   const lastAttachmentsCountRef = useRef<number>(Object.keys(attachments).length);
   const isComposingRef = useRef<boolean>(false);
 
@@ -177,15 +180,17 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   const [customBoxCss, setCustomBoxCss] = useState('');
   const [customBoxTitle, setCustomBoxTitle] = useState('');
 
-  // Emit DOM changes to Markdown
+  // Emit DOM changes to Markdown and HTML
   const emitChanges = useCallback(() => {
     const el = editorRef.current;
     if (!el) return;
     const md = htmlToMarkdown(el);
+    const rawHtml = el.innerHTML;
     lastEmittedContentRef.current = md;
+    lastEmittedHtmlRef.current = rawHtml;
     const isEmpty = !md || md.trim().length === 0;
     el.setAttribute('data-empty', isEmpty ? 'true' : 'false');
-    onChange(md);
+    onChange(md, rawHtml);
   }, [onChange]);
 
   // Initial mount & external content sync (e.g. node switch, AI Writer update, attachments loaded)
@@ -196,16 +201,22 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
 
     const attachmentsCount = Object.keys(attachments).length;
     const contentChangedExternally = content !== lastEmittedContentRef.current;
+    const htmlChangedExternally = html !== undefined && html !== lastEmittedHtmlRef.current;
     const attachmentsChanged = attachmentsCount !== lastAttachmentsCountRef.current;
 
-    if (contentChangedExternally || attachmentsChanged || !el.innerHTML) {
-      el.innerHTML = markdownToHtml(content, attachments);
+    if (contentChangedExternally || htmlChangedExternally || attachmentsChanged || !el.innerHTML) {
+      if (html && html.trim() && !contentChangedExternally) {
+        el.innerHTML = html;
+      } else {
+        el.innerHTML = markdownToHtml(content, attachments);
+      }
       const isEmpty = !content || content.trim().length === 0;
       el.setAttribute('data-empty', isEmpty ? 'true' : 'false');
       lastEmittedContentRef.current = content;
+      lastEmittedHtmlRef.current = html;
       lastAttachmentsCountRef.current = attachmentsCount;
     }
-  }, [content, attachments, sourceMode]);
+  }, [content, html, attachments, sourceMode]);
 
   // Save current selection range inside editor
   const saveSelection = useCallback(() => {
@@ -341,6 +352,19 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
   const execFormat = useCallback(
     (command: string, value?: string) => {
       restoreSelection();
+      if (command === 'insertUnorderedList' || command === 'insertOrderedList') {
+        const sel = window.getSelection();
+        const anchorNode = sel?.anchorNode;
+        const anchorEl =
+          anchorNode?.nodeType === Node.ELEMENT_NODE
+            ? (anchorNode as HTMLElement)
+            : anchorNode?.parentElement;
+        const indentedEl = anchorEl?.closest('[data-indent]') as HTMLElement | null;
+        if (indentedEl) {
+          indentedEl.removeAttribute('data-indent');
+          indentedEl.style.paddingLeft = '';
+        }
+      }
       document.execCommand(command, false, value);
       emitChanges();
       saveSelection();
@@ -359,6 +383,139 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
     },
     [restoreSelection, emitChanges, saveSelection]
   );
+
+  // Indent (Thụt lề vào trong - Danh sách cấp con hoặc Thụt lề đoạn văn thuần túy, KHÔNG tạo khung trích dẫn)
+  const handleIndent = useCallback(() => {
+    restoreSelection();
+    const sel = window.getSelection();
+    if (!sel || !editorRef.current) return;
+
+    const anchorNode = sel.anchorNode;
+    const anchorEl =
+      anchorNode?.nodeType === Node.ELEMENT_NODE
+        ? (anchorNode as HTMLElement)
+        : anchorNode?.parentElement;
+
+    if (!editorRef.current.contains(anchorEl || null)) return;
+
+    // 1. Nếu đang trong danh sách (li): Thụt lề cấp con chuẩn
+    const li = anchorEl?.closest('li');
+    if (li) {
+      document.execCommand('indent', false);
+      emitChanges();
+      saveSelection();
+      return;
+    }
+
+    // 2. Nếu đang trong bảng: Nhảy sang ô tiếp theo
+    const cell = anchorEl?.closest('td, th') as HTMLTableCellElement | null;
+    if (cell) {
+      const table = cell.closest('table');
+      if (table) {
+        const cells = Array.from(table.querySelectorAll('th, td'));
+        const idx = cells.indexOf(cell);
+        if (idx >= 0 && idx + 1 < cells.length) {
+          const nextCell = cells[idx + 1] as HTMLElement;
+          nextCell.focus();
+          const range = document.createRange();
+          range.selectNodeContents(nextCell);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          return;
+        }
+      }
+    }
+
+    // 3. Đoạn văn / Tiêu đề / Div thông thường: Ép lề vào trong thuần túy (margin/padding) không bọc blockquote
+    const blockEl = anchorEl?.closest('p, div, h1, h2, h3, h4, blockquote') as HTMLElement | null;
+    if (blockEl && blockEl !== editorRef.current) {
+      const currentIndent = parseInt(blockEl.getAttribute('data-indent') || '0', 10);
+      const nextIndent = Math.min(currentIndent + 1, 6);
+      blockEl.setAttribute('data-indent', String(nextIndent));
+      blockEl.style.paddingLeft = `${nextIndent * 1.5}rem`;
+    } else {
+      document.execCommand('insertText', false, '    ');
+    }
+
+    emitChanges();
+    saveSelection();
+  }, [restoreSelection, emitChanges, saveSelection]);
+
+  // Outdent (Lùi lề ra ngoài - Giảm cấp danh sách hoặc Gỡ bỏ khung trích dẫn / Giảm lề đoạn văn)
+  const handleOutdent = useCallback(() => {
+    restoreSelection();
+    const sel = window.getSelection();
+    if (!sel || !editorRef.current) return;
+
+    const anchorNode = sel.anchorNode;
+    const anchorEl =
+      anchorNode?.nodeType === Node.ELEMENT_NODE
+        ? (anchorNode as HTMLElement)
+        : anchorNode?.parentElement;
+
+    if (!editorRef.current.contains(anchorEl || null)) return;
+
+    // 1. Nếu đang trong danh sách (li): Lùi cấp danh sách ra ngoài
+    const li = anchorEl?.closest('li');
+    if (li) {
+      document.execCommand('outdent', false);
+      emitChanges();
+      saveSelection();
+      return;
+    }
+
+    // 2. Nếu đang nằm trong khung trích dẫn (blockquote): Gỡ bỏ khung trích dẫn để thoát ra ngoài!
+    const bq = anchorEl?.closest('blockquote');
+    if (bq && editorRef.current.contains(bq)) {
+      const parent = bq.parentNode;
+      const frag = document.createDocumentFragment();
+      while (bq.firstChild) {
+        frag.appendChild(bq.firstChild);
+      }
+      parent?.replaceChild(frag, bq);
+      emitChanges();
+      saveSelection();
+      return;
+    }
+
+    // 3. Nếu đang trong bảng: Nhảy về ô trước đó
+    const cell = anchorEl?.closest('td, th') as HTMLTableCellElement | null;
+    if (cell) {
+      const table = cell.closest('table');
+      if (table) {
+        const cells = Array.from(table.querySelectorAll('th, td'));
+        const idx = cells.indexOf(cell);
+        if (idx > 0) {
+          const prevCell = cells[idx - 1] as HTMLElement;
+          prevCell.focus();
+          const range = document.createRange();
+          range.selectNodeContents(prevCell);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+          return;
+        }
+      }
+    }
+
+    // 4. Đoạn văn / Tiêu đề / Div thông thường: Giảm lề
+    const blockEl = anchorEl?.closest('p, div, h1, h2, h3, h4') as HTMLElement | null;
+    if (blockEl && blockEl !== editorRef.current) {
+      const currentIndent = parseInt(blockEl.getAttribute('data-indent') || '0', 10);
+      const nextIndent = Math.max(0, currentIndent - 1);
+      if (nextIndent === 0) {
+        blockEl.removeAttribute('data-indent');
+        blockEl.style.paddingLeft = '';
+      } else {
+        blockEl.setAttribute('data-indent', String(nextIndent));
+        blockEl.style.paddingLeft = `${nextIndent * 1.5}rem`;
+      }
+    }
+
+    emitChanges();
+    saveSelection();
+  }, [restoreSelection, emitChanges, saveSelection]);
 
   // Apply Text Color
   const handleTextColor = useCallback(
@@ -913,45 +1070,11 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
       // Tab / Shift+Tab for Lists, Tables, and Indentation
       if (e.key === 'Tab') {
         e.preventDefault();
-        const sel = window.getSelection();
-        const anchorEl =
-          sel?.anchorNode?.nodeType === Node.ELEMENT_NODE
-            ? (sel.anchorNode as HTMLElement)
-            : sel?.anchorNode?.parentElement;
-
-        // Inside Table: jump to next/prev cell
-        const cell = anchorEl?.closest('td, th') as HTMLTableCellElement | null;
-        if (cell) {
-          const table = cell.closest('table');
-          if (table) {
-            const cells = Array.from(table.querySelectorAll('th, td'));
-            const idx = cells.indexOf(cell);
-            const nextIdx = e.shiftKey ? idx - 1 : idx + 1;
-            if (nextIdx >= 0 && nextIdx < cells.length) {
-              const targetCell = cells[nextIdx] as HTMLElement;
-              targetCell.focus();
-              const range = document.createRange();
-              range.selectNodeContents(targetCell);
-              range.collapse(false);
-              sel?.removeAllRanges();
-              sel?.addRange(range);
-              return;
-            }
-          }
-        }
-
-        // Inside List or General Text: Indent / Outdent
         if (e.shiftKey) {
-          document.execCommand('outdent', false);
+          handleOutdent();
         } else {
-          const inList = Boolean(anchorEl?.closest('li'));
-          if (inList) {
-            document.execCommand('indent', false);
-          } else {
-            document.execCommand('insertText', false, '    ');
-          }
+          handleIndent();
         }
-        emitChanges();
         return;
       }
 
@@ -1351,7 +1474,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => execFormat('indent')}
+            onClick={handleIndent}
             title="Thụt lề vào trong (Tab)"
             className="p-1.5 rounded-lg hover:bg-[#252535] text-zinc-300 hover:text-white transition-colors cursor-pointer"
           >
@@ -1361,7 +1484,7 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => execFormat('outdent')}
+            onClick={handleOutdent}
             title="Lùi lề ra ngoài (Shift+Tab)"
             className="p-1.5 rounded-lg hover:bg-[#252535] text-zinc-300 hover:text-white transition-colors cursor-pointer"
           >
@@ -1813,7 +1936,8 @@ export const UnifiedNoteEditor: React.FC<UnifiedNoteEditorProps> = ({
               value={content}
               onChange={(e) => {
                 lastEmittedContentRef.current = e.target.value;
-                onChange(e.target.value);
+                lastEmittedHtmlRef.current = undefined;
+                onChange(e.target.value, undefined);
               }}
               className="flex-1 w-full bg-[#15151e] border border-[#2a2a3c] focus:border-purple-500 rounded-xl p-4 text-zinc-200 font-mono text-xs leading-relaxed outline-none resize-none"
               placeholder="Mã nguồn Markdown..."

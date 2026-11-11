@@ -178,7 +178,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const insertTextAtCursor = (textToInsert: string) => {
     const currentVal = data.content || '';
     const newContent = currentVal ? `${currentVal.trimEnd()}\n${textToInsert}\n` : textToInsert;
-    onUpdateNode(selectedNode.id, { content: newContent });
+    onUpdateNode(selectedNode.id, { content: newContent, html: undefined });
   };
 
   const handleCopyNoteLink = () => {
@@ -272,10 +272,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleApplyAiContent = (type: 'replace' | 'append') => {
     if (!selectedNode || !aiWriterResult) return;
     if (type === 'replace') {
-      onUpdateNode(selectedNode.id, { content: aiWriterResult });
+      onUpdateNode(selectedNode.id, { content: aiWriterResult, html: undefined });
     } else {
       const existing = selectedNode.data.content ? selectedNode.data.content.trimEnd() + '\n\n' : '';
-      onUpdateNode(selectedNode.id, { content: existing + aiWriterResult });
+      onUpdateNode(selectedNode.id, { content: existing + aiWriterResult, html: undefined });
     }
     setAiWriterResult(null);
     setShowAiWriter(false);
@@ -1302,8 +1302,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-[#121217]">
           <ErrorBoundary fallbackTitle="Không thể tải bộ soạn thảo ghi chú">
             <UnifiedNoteEditor
+              key={selectedNode.id}
               content={data.content || ''}
-              onChange={(newContent) => onUpdateNode(selectedNode.id, { content: newContent })}
+              html={data.html}
+              onChange={(newContent, newHtml) => onUpdateNode(selectedNode.id, { content: newContent, html: newHtml })}
               attachments={attachments}
               onSaveAttachment={onSaveAttachment}
               allNodes={allNodes}

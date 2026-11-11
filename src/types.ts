@@ -17,6 +17,7 @@ export interface MindMapNodeData {
   color: NodeColor;
   shape: NodeShape;
   content: string;
+  html?: string;
   icon?: string;
   updatedAt?: number;
   [key: string]: unknown;

@@ -388,6 +388,20 @@ export function markdownToHtml(
 
   // 4. Extract custom <div style="...">...</div> blocks
   text = text.replace(/<div\s+style="([^"]+)">([\s\S]*?)<\/div>/gi, (_m, styleStr: string, inner: string) => {
+    // Nếu là khối thụt lề thuần túy (chỉ có padding-left / margin-left, không có khung viền màu callout)
+    if (
+      (styleStr.includes('padding-left') || styleStr.includes('margin-left')) &&
+      !styleStr.includes('border') &&
+      !styleStr.includes('background')
+    ) {
+      const indentMatch = styleStr.match(/padding-left:\s*([\d.]+)rem/);
+      const indentNum = indentMatch ? Math.round(parseFloat(indentMatch[1]) / 1.5) : 1;
+      const bodyHtml = markdownToHtml(inner.trim(), attachments);
+      return pushBlockToken(
+        `<div class="mn-indented-block" data-indent="${indentNum}" style="${escapeAttr(styleStr)}">${bodyHtml}</div>`
+      );
+    }
+
     const bodyHtml = markdownToHtml(inner.trim(), attachments);
     return pushBlockToken(
       `<div class="mn-callout-box" data-box-kind="div" data-box-style="${escapeAttr(styleStr)}" style="${escapeAttr(styleStr)}">` +
@@ -493,9 +507,8 @@ export function markdownToHtml(
         quoteLines.push(lines[i].replace(/^\s*>\s?/, ''));
         i++;
       }
-      const innerHtml = quoteLines
-        .map((ql) => `<p>${renderInlineMarkdownToHtml(ql, attachments) || '<br>'}</p>`)
-        .join('');
+      const quoteBody = quoteLines.join('\n');
+      const innerHtml = markdownToHtml(quoteBody, attachments);
       htmlBlocks.push(`<blockquote class="mn-blockquote">${innerHtml}</blockquote>`);
       continue;
     }
@@ -852,15 +865,28 @@ function serializeBlockNode(node: Node): string {
 
   // 9. Paragraph or Div or Section
   if (tag === 'p' || tag === 'div' || tag === 'section' || tag === 'article') {
+    const indentAttr = el.getAttribute('data-indent');
+    const indentNum = indentAttr ? parseInt(indentAttr, 10) : 0;
+
     // Check if element contains block-level children (such as Chromium's <p><ul>...</ul></p>)
     const hasBlockChildren = Array.from(el.children).some((c) =>
       /^(P|DIV|H1|H2|H3|H4|UL|OL|LI|TABLE|BLOCKQUOTE|PRE|HR|SECTION|ARTICLE)$/.test(c.tagName)
     );
     if (hasBlockChildren) {
-      return htmlToMarkdown(el);
+      const innerMd = htmlToMarkdown(el);
+      if (indentNum > 0) {
+        return `<div style="padding-left: ${indentNum * 1.5}rem;">\n${innerMd}\n</div>`;
+      }
+      return innerMd;
     }
 
     const content = Array.from(el.childNodes).map(serializeInlineNodes).join('').trim();
+    if (!content) return '';
+
+    if (indentNum > 0) {
+      return `<div style="padding-left: ${indentNum * 1.5}rem;">${content}</div>`;
+    }
+
     return content;
   }
 

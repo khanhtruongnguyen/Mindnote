@@ -250,6 +250,12 @@
   border: 1px solid rgba(82, 82, 91, 0.45);
 }
 
+/* Indented Block (Ép lề thuần túy, không có khung viền) */
+.mn-doc-surface .mn-indented-block {
+  margin: 0.25em 0;
+  transition: padding-left 0.15s ease;
+}
+
 /* Lists & Nested Lists */
 .mn-doc-surface ul,
 .mn-doc-surface ol {
